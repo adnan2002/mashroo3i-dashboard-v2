@@ -115,27 +115,6 @@ python evaluate_agent.py --samples 6 --out /tmp/mashroo3i_eval.json
 python evaluate_agent.py --offline   # no live API calls
 ```
 
-## Hybrid model + agent evaluation
-
-`hybrid_evaluate.py` combines the Brinc CatBoost acceptance model
-(`~/Desktop/filter_3/artifacts/brinc_model_full`) with the AI Agent's
-innovation score. It removes outcome columns from the inputs, computes honest
-out-of-fold probabilities, and reports model-only vs agent-only vs hybrid
-ROC/PR AUC. Run it with the model environment:
-
-```bash
-~/Desktop/filter_3/venv/bin/python hybrid_evaluate.py --stage model
-~/Desktop/filter_3/venv/bin/python hybrid_evaluate.py --stage agent
-~/Desktop/filter_3/venv/bin/python hybrid_evaluate.py --stage metrics
-```
-
-See `HYBRID_EVALUATION.md` for the results and recommendation.
-
-For a **model-first cascade** (model ranks; agent evaluates only the
-shortlist), use `--mode cascade --top-k 30`; the model shortlist reached 73%
-accepted (vs 21% baseline) while the agent reports remained a second-opinion
-annotation rather than a replacement for the model ranking.
-
 ### Selection Advisor page in Streamlit
 
 The app has a **Selection Advisor** page that runs the same cascade

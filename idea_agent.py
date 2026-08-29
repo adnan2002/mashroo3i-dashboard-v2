@@ -816,7 +816,7 @@ def _tool_definitions() -> list[dict[str, Any]]:
                 "description": (
                     "Search the web for competitors, market need and trends, "
                     "then score the innovation level of the idea on a weighted "
-                    "0-100 rubric."
+                    "0-25 rubric."
                 ),
                 "parameters": {
                     "type": "object",

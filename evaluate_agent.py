@@ -197,14 +197,21 @@ class OfflineLLM:
             "innovation_validation": {
                 "dimensions": {
                     name: {
-                        "score": 7.0,
+                        "score": 4.0,
                         "rationale": "Offline fixture rationale.",
                         "evidence": [],
                     }
                     for name, _weight in idea_agent.SCORING_RUBRIC
                 },
-                "total_score": 70.0,
+                "total_score": 20.0,
                 "verdict": "Promising",
+                "sources": [
+                    {
+                        "title": "Offline fixture source",
+                        "url": "https://example.com/offline",
+                        "snippet": "Offline fixture snippet.",
+                    }
+                ],
                 "risks": [],
                 "recommendations": [],
             },
@@ -267,11 +274,11 @@ def check_report(
             for dimension in dimensions.values()
         )
         checks["scores_in_range"] = all(
-            0 <= dimension.score <= 10 for dimension in dimensions.values()
+            0 <= dimension.score <= 5 for dimension in dimensions.values()
         )
         if score.total_score is not None and dimensions:
             expected = round(
-                10
+                5
                 * sum(
                     dimensions[name].score * weight
                     for name, weight in idea_agent.SCORING_RUBRIC

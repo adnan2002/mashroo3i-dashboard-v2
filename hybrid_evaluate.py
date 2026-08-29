@@ -1,7 +1,7 @@
 """Hybrid evaluator: Brinc CatBoost acceptance model + innovation agent.
 
 Measures how well the saved Brinc model (prob. an applicant is Accepted)
-combined with the agent's web-researched innovation score (0-100) predicts
+combined with the agent's web-researched innovation score (0-25) predicts
 the real acceptance label.
 
 The evaluation removes every outcome column from the inputs and uses honest
