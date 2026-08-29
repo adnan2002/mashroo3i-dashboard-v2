@@ -700,17 +700,21 @@ def _render_hybrid_page(
         help=f"Maximum equals the {predicted} Predicted Accepted applicants.",
     )
     st.markdown("### Primary shortlist by classifier model")
+    primary = ranked.head(shown)[
+        [
+            "model_rank",
+            "project_name",
+            "year",
+            "Sector",
+            "accept_probability",
+            "predicted_accepted",
+        ]
+    ].copy()
+    primary["predicted_accepted"] = primary["predicted_accepted"].map(
+        {1: "Accepted", 0: "Rejected"}
+    )
     st.dataframe(
-        ranked.head(shown)[
-            [
-                "model_rank",
-                "project_name",
-                "year",
-                "Sector",
-                "accept_probability",
-                "predicted_accepted",
-            ]
-        ],
+        primary,
         use_container_width=True,
         hide_index=True,
     )

@@ -59,6 +59,17 @@ def test_hybrid_page_ranks_with_real_model():
     assert not at.exception
     assert len(at.session_state["brinc_ranked"]) == 20
     assert any("Primary shortlist" in str(value.value) for value in at.markdown)
+    primary_frames = [
+        element.value
+        for element in at.dataframe
+        if hasattr(element.value, "columns")
+        and "predicted_accepted" in element.value.columns
+    ]
+    assert primary_frames, "primary shortlist table not rendered"
+    labels = set(
+        primary_frames[0]["predicted_accepted"].astype(str).unique()
+    )
+    assert labels <= {"Accepted", "Rejected"}, labels
 
 
 def test_hybrid_page_applies_year_filter_to_shortlist():
