@@ -1,0 +1,15 @@
+project_name,year,cohort,cohort_id,Sector,outcome_clean,Business Stage,Age Group,applicant_type,individual_or_team,team_member_count,employment_status,has_commercial_registration,education,major,nationality
+ProjectAlpha,2024,English,2024-1,Technology & IT,Accepted,Idea,18-24,Individual,Individual,1,Student,No,University / Higher Education,Computer Science,Bahrain
+ProjectBeta,2024,Arabic,2024-2,Food & Beverage,Rejected,MVP,25-34,Team,Team,3,Employed,Yes,University / Higher Education,Business Administration,Bahrain
+ProjectGamma,2025,English,2025-1,Education,Accepted,Revenue Generating,35-44,Team,Team,4,Employed,Yes,Secondary School,Not Specified,United Arab Emirates
+ProjectDelta,2023,Arabic,2023-1,Services & Consulting,Rejected,Idea,18-24,Individual,Individual,1,Student,No,Secondary School,Computer Science,Bahrain
+ProjectEpsilon,2024,English,2024-1,Health & Medical,Accepted,MVP,25-34,Individual,Individual,2,Employed,Yes,University / Higher Education,Computer Science,Saudi Arabia
+ProjectZeta,2024,Arabic,2024-2,Financial Services,Rejected,Idea,Not Specified,Team,Team,5,Employed,No,Not Specified,Business Administration,Bahrain
+ProjectEta,2025,English,2025-1,Technology & IT,Accepted,Operating,45+,Individual,Individual,1,Employed,Yes,University / Higher Education,Computer Science,Bahrain
+ProjectTheta,2025,Arabic,2025-1,Food & Beverage,Rejected,MVP,25-34,Team,Team,5+,Student,No,Secondary School,Computer Science,Iraq
+ProjectIota,2023,English,2023-1,Not Specified,Accepted,Not Specified,18-24,Individual,Individual,1,Not Specified,No,University / Higher Education,Computer Science,Not Specified
+ProjectKappa,2023,English,2023-1,Services & Consulting,Accepted,Idea,25-34,Team,Team,2,Employed,Yes,University / Higher Education,Business Administration,United Arab Emirates
+ProjectLambda,2023,Arabic,2023-1,Education,Rejected,MVP,Not Specified,Individual,Individual,1,Student,No,Secondary School,Business Administration,Kuwait
+ProjectMu,2025,English,2025-1,Services & Consulting,Accepted,Revenue Generating,Not Specified,Individual,Individual,1,Employed,Yes,University / Higher Education,Business Administration,Bahrain
+ProjectNu,2025,English,2025-1,Technology & IT,Accepted,Revenue Generating,35-44,Individual,Individual,1,Employed,Yes,University / Higher Education,Computer Science,Bahrain
+ProjectOmicron,2024,Arabic,2024-2,Education,Accepted,Idea,18-24,Individual,Individual,1,Student,No,University / Higher Education,Computer Science,Bahrain

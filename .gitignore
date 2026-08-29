@@ -9,11 +9,7 @@ __pycache__/
 
 # Local secrets
 .env
-
-# Data files can be regenerated with make_dummy_mashroo3i.py
-cleaned_mashroo3i*.csv
-dummy_mashroo3i*.csv
-dummy_mashroo3i*.xlsx
+.streamlit/secrets.toml
 
 # Editor / OS noise
 .idea/

@@ -107,6 +107,11 @@ btn_a = {
     "textAlign": "left",
     "boxShadow": "0 8px 18px rgba(255, 107, 46, .22)",
 }
+VALUE_MODE_STYLE = {
+    "fontSize": "12px",
+    "fontWeight": "700",
+    "color": C_TEXT,
+}
 
 
 def _clean_cohort(value):
@@ -178,9 +183,15 @@ def _attendance_summary(df, by):
     attendance["_has_attendance"] = (
         attendance["_member_opportunities"] > 0
     )
-    attended = attendance[attendance["_has_attendance"]].copy()
+    attendance["_group_missing"] = attendance[by].map(_is_missing_group)
+    attended = attendance[
+        attendance["_has_attendance"] & ~attendance["_group_missing"]
+    ].copy()
+    missing_count = int(
+        (attendance["_has_attendance"] & attendance["_group_missing"]).sum()
+    )
     if attended.empty:
-        return attended
+        return attended, missing_count
 
     summary = (
         attended.groupby(by, dropna=False)
@@ -195,7 +206,15 @@ def _attendance_summary(df, by):
     summary["member_attendance_rate"] = (
         summary["member_days_attended"] / summary["member_opportunities"] * 100
     )
-    return summary
+    return summary, missing_count
+
+
+def _is_missing_group(value) -> bool:
+    """True for NaN, blank, or 'Not Specified'-style group values."""
+    if pd.isna(value):
+        return True
+    text = str(value).strip().lower()
+    return text in {"", "nan", "none", "null", "not specified", "blanks", "blank"}
 
 
 def _age_order(index):
@@ -316,7 +335,7 @@ def build_layout():
                         value="counts",
                         inline=True,
                         labelStyle={"marginRight": "14px"},
-                        style={"fontSize": "12px", "fontWeight": "700", "color": C_TEXT},
+                        style=VALUE_MODE_STYLE,
                     ),
                 ],
             ),
@@ -362,6 +381,7 @@ server = app.server
     Output("btn-p3", "style"),
     Output("btn-p4", "style"),
     Output("btn-p5", "style"),
+    Output("value-mode", "style"),
     Input("btn-p1", "n_clicks"),
     Input("btn-p2", "n_clicks"),
     Input("btn-p3", "n_clicks"),
@@ -372,7 +392,7 @@ def switch_page(b1, b2, b3, b4, b5):
     from dash import ctx
 
     if not ctx.triggered:
-        return "page1", btn_a, btn_w, btn_w, btn_w, btn_w
+        return "page1", btn_a, btn_w, btn_w, btn_w, btn_w, VALUE_MODE_STYLE
     pages = {
         "btn-p1": "page1",
         "btn-p2": "page2",
@@ -388,6 +408,7 @@ def switch_page(b1, b2, b3, b4, b5):
         btn_a if page == "page3" else btn_w,
         btn_a if page == "page4" else btn_w,
         btn_a if page == "page5" else btn_w,
+        {"display": "none"} if page == "page5" else VALUE_MODE_STYLE,
     )
 
 
@@ -421,8 +442,8 @@ def handle_upload(contents, filename):
         DF_GLOBAL["year"] = pd.to_numeric(DF_GLOBAL["year"], errors="coerce").astype("Int64")
     if "cohort" in DF_GLOBAL.columns:
         DF_GLOBAL["cohort"] = DF_GLOBAL["cohort"].map(_clean_cohort)
-    # Real data uses individual_or_team (per dataframe_schemas.json), while the
-    # dashboard filters on applicant_type. Derive the alias when missing.
+    # Real data uses individual_or_team, while the dashboard filters on
+    # applicant_type. Derive the alias when missing.
     if "applicant_type" not in DF_GLOBAL.columns and "individual_or_team" in DF_GLOBAL.columns:
         DF_GLOBAL["applicant_type"] = DF_GLOBAL["individual_or_team"].map(_clean_applicant_type)
     if "applicant_type" in DF_GLOBAL.columns:
@@ -537,6 +558,14 @@ def _split_missing(counts: pd.Series) -> tuple[pd.Series, dict[str, int]]:
     return pd.Series(dict(visible), name=counts.name), missing
 
 
+def _clean_slash_label(value):
+    """Keep the descriptive part of labels like 'University / Higher Education'."""
+    if isinstance(value, str) and "/" in value:
+        cleaned = value.split("/")[-1].strip()
+        return cleaned if cleaned else value
+    return value
+
+
 def _missing_note(
     missing: dict[str, int],
     as_percent: bool = False,
@@ -547,16 +576,17 @@ def _missing_note(
     if not missing:
         return None
     count = sum(missing.values())
+    if count <= 0:
+        return None
     if label:
         label = label
     elif len(missing) > 1:
         label = "blank or not specified"
     else:
         label = next(iter(missing)).lower()
-    text = f"{count} {label}"
     if as_percent and full_total:
-        text += f" ({count / full_total * 100:.1f}%)"
-    return text
+        return f"{count / full_total * 100:.1f}% {label}"
+    return f"{count} {label}"
 
 
 def _add_missing_note(fig, note, bottom=False):
@@ -624,8 +654,15 @@ def _order_legend_colors(fig):
             trace.legendrank = color_order[color]
 
 
-def _attendance_bar_fig(summary, by, horizontal=False, max_items=None, sort_by="value"):
-    """Build a member-attendance bar chart with the group on the x-axis."""
+def _attendance_bar_fig(
+    summary,
+    by,
+    horizontal=False,
+    max_items=None,
+    sort_by="value",
+    note=None,
+):
+    """Build a member-attendance rate (%) chart with an optional note."""
     if summary is None or summary.empty:
         return _bar_fig([], [], orientation="h" if horizontal else "v")
 
@@ -641,25 +678,27 @@ def _attendance_bar_fig(summary, by, horizontal=False, max_items=None, sort_by="
         values = values.sort_values(ascending=False)
 
     labels = [f"{value}%" for value in values.values]
+
     if horizontal:
-        return _bar_fig(
+        fig = _bar_fig(
             values.values,
             values.index,
             orientation="h",
             text=labels,
         )
-    fig = _bar_fig(
-        values.index,
-        values.values,
-        orientation="v",
-        text=labels,
-    )
-    fig.update_xaxes(type="category")
-    return fig
+    else:
+        fig = _bar_fig(
+            values.index,
+            values.values,
+            orientation="v",
+            text=labels,
+        )
+        fig.update_xaxes(type="category")
+    return _add_missing_note(fig, note, bottom=horizontal)
 
 
 def _team_size_bucket(value):
-    """Map a raw team-member count to a display category."""
+    """Map a raw team-member count to a display category (1 is excluded)."""
     if pd.isna(value):
         return "Blanks"
     text = str(value).strip()
@@ -673,13 +712,15 @@ def _team_size_bucket(value):
         return "Blanks"
     if pd.isna(number) or number <= 0:
         return "Blanks"
+    if number <= 1:
+        return None
     if number > 5:
         return "5+"
     return str(int(number))
 
 
 def _team_size_fig(df, as_percent=False):
-    """Build a team-size distribution with 1-5, 5+, and a Blanks side note."""
+    """Build a team-size distribution with 2-5, 5+, and a Blanks side note."""
     if "team_member_count" in df.columns:
         size_col = "team_member_count"
     elif "team_size_from_attendance" in df.columns:
@@ -689,11 +730,13 @@ def _team_size_fig(df, as_percent=False):
     else:
         return _bar_fig([], [])
 
-    buckets = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "5+": 0, "Blanks": 0}
+    buckets = {"2": 0, "3": 0, "4": 0, "5": 0, "5+": 0, "Blanks": 0}
     for value in df[size_col]:
-        buckets[_team_size_bucket(value)] += 1
+        bucket = _team_size_bucket(value)
+        if bucket is not None:
+            buckets[bucket] += 1
 
-    labels = ["1", "2", "3", "4", "5", "5+"]
+    labels = ["2", "3", "4", "5", "5+"]
     counts = pd.Series(buckets).reindex(labels).astype(int)
     blanks = int(buckets["Blanks"])
     if as_percent:
@@ -713,7 +756,7 @@ def _team_size_fig(df, as_percent=False):
     fig.update_xaxes(
         type="category",
         categoryorder="array",
-        categoryarray=["1", "2", "3", "4", "5", "5+"],
+        categoryarray=["2", "3", "4", "5", "5+"],
     )
     note = _missing_note(
         {"Blanks": blanks},
@@ -1110,7 +1153,9 @@ def update_page(
             note=note_emp,
         )
 
-        cnt_edu, missing_edu = _split_missing(dff["education"].value_counts())
+        cnt_edu, missing_edu = _split_missing(
+            dff["education"].map(_clean_slash_label).value_counts()
+        )
         cnt_edu = cnt_edu.sort_values().tail(6)
         note_edu = _missing_note(missing_edu, as_percent, total)
         fig_edu = _dist_fig(
@@ -1121,7 +1166,9 @@ def update_page(
             note=note_edu,
         )
 
-        cnt_major, missing_major = _split_missing(dff["major"].value_counts())
+        cnt_major, missing_major = _split_missing(
+            dff["major"].map(_clean_slash_label).value_counts()
+        )
         cnt_major = cnt_major.sort_values().tail(6)
         note_major = _missing_note(missing_major, as_percent, total)
         fig_major = _dist_fig(
@@ -1378,13 +1425,13 @@ def update_page(
             "in the current filter."
         )
 
-        yearly_attendance = _attendance_summary(dff, "year")
+        yearly_attendance, year_missing = _attendance_summary(dff, "year")
         if yearly_attendance is not None and not yearly_attendance.empty:
             cohort_by = "cohort_id" if "cohort_id" in dff.columns else "cohort"
-            cohort_attendance = _attendance_summary(
-                dff[dff[cohort_by].notna()], cohort_by
+            cohort_attendance, cohort_missing = _attendance_summary(
+                dff, cohort_by
             )
-            sector_attendance = _attendance_summary(dff, "Sector")
+            sector_attendance, sector_missing = _attendance_summary(dff, "Sector")
             attendance_projects = int(
                 yearly_attendance["attendance_projects"].sum()
             )
@@ -1396,13 +1443,19 @@ def update_page(
             attendance_note = (
                 f"Member attendance is shown for {attendance_projects} "
                 f"attendance-matched projects out of {len(dff)} applicant rows "
-                f"in the current filter. Overall: {overall_rate:.1f}%."
+                "in the current filter."
             )
+            attendance_note += f" Overall: {overall_rate:.1f}%."
+            # Show a note only where a group actually has missing values
+            # (e.g. Sector); charts with zero missing stay clean.
+            note_year = _missing_note({"not specified": year_missing})
+            note_cohort = _missing_note({"not specified": cohort_missing})
+            note_sector = _missing_note({"not specified": sector_missing})
             fig_att_cohort = _attendance_bar_fig(
-                cohort_attendance, cohort_by, sort_by="label"
+                cohort_attendance, cohort_by, sort_by="label", note=note_cohort,
             )
             fig_att_year = _attendance_bar_fig(
-                yearly_attendance, "year", sort_by="label"
+                yearly_attendance, "year", sort_by="label", note=note_year,
             )
             fig_att_year.update_layout(
                 xaxis=dict(
@@ -1414,7 +1467,8 @@ def update_page(
                 )
             )
             fig_att_sector = _attendance_bar_fig(
-                sector_attendance, "Sector", horizontal=True, max_items=6
+                sector_attendance, "Sector", horizontal=True, max_items=6,
+                note=note_sector,
             )
         else:
             rate_col = (
@@ -1427,8 +1481,14 @@ def update_page(
             if rate_col:
                 att_series = _attendance_pct(dff[rate_col])
                 group_col = "cohort_id" if "cohort_id" in dff.columns else "cohort"
+                cohort_ok = dff[group_col].map(
+                    lambda value: not _is_missing_group(value)
+                )
+                year_ok = dff["year"].map(
+                    lambda value: not _is_missing_group(value)
+                )
                 att_by_cohort = (
-                    att_series.groupby(dff[group_col])
+                    att_series[cohort_ok].groupby(dff.loc[cohort_ok, group_col])
                     .mean()
                     .round(1)
                     .sort_index()
@@ -1439,7 +1499,11 @@ def update_page(
                     text=att_by_cohort.values.astype(str) + "%",
                 )
                 att_by_year = (
-                    att_series.groupby(dff["year"]).mean().round(1).sort_index()
+                    att_series[year_ok]
+                    .groupby(dff.loc[year_ok, "year"])
+                    .mean()
+                    .round(1)
+                    .sort_index()
                 )
                 fig_att_year = _bar_fig(
                     att_by_year.index,
@@ -1455,8 +1519,12 @@ def update_page(
                         tickformat="d",
                     )
                 )
+                sector_ok = dff["Sector"].map(
+                    lambda value: not _is_missing_group(value)
+                ) & att_series.notna()
                 att_by_sector = (
-                    att_series.groupby(dff["Sector"])
+                    att_series[sector_ok]
+                    .groupby(dff.loc[sector_ok, "Sector"])
                     .mean()
                     .round(1)
                     .sort_values()

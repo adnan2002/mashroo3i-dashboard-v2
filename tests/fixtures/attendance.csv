@@ -1,0 +1,6 @@
+sessions_scheduled,team_days_present,team_days_virtual,team_attendance_rate,member_attendance_rate,attendance_member_rows,member_days_present,member_days_virtual,team_size_from_attendance,year,cohort,matched_project_name,matched_application_id
+5,5,0,1.0,0.5,2,5,0,5,2024,English,ProjectAlpha,app-1
+4,3,1,1.0,0.833333,3,8,2,5,2024,Arabic,ProjectBeta,app-2
+6,6,0,1.0,1.0,1,4,2,5,2025,English,ProjectGamma,app-3
+2,1,1,1.0,0.0,1,0,0,5,2023,Arabic,ProjectDelta,app-4
+3,2,1,1.0,0.5,2,2,1,5,2024,English,,
