@@ -438,10 +438,6 @@ def test_cohort_language_charts_stack_counts_and_percent():
     expected_desc = list(cohort_counts.index)
     expected_visual = list(cohort_counts.sort_values().index)
 
-    def row_label(cohort):
-        others = [str(other) for other in expected_desc if other != cohort]
-        return f"{cohort} vs {cohort} + " + " + ".join(others)
-
     outcome_fig = figures["Language Cohort vs Outcome"]
     assert outcome_fig.data[0].orientation == "h"
     assert outcome_fig.layout.barmode == "stack"
@@ -457,23 +453,18 @@ def test_cohort_language_charts_stack_counts_and_percent():
 
     size_fig = figures["Cohort Size by Language Cohort"]
     assert size_fig.data[0].orientation == "h"
-    assert size_fig.layout.barmode == "group"
     assert [trace.name for trace in size_fig.data] == [
-        "Both Cohorts",
-        "Own Cohort",
+        str(cohort) for cohort in expected_visual
     ]
-    assert size_fig.data[0].marker.color == dashboard.C_ORANGE_DARK
-    assert size_fig.data[1].marker.color == dashboard.C_ORANGE_LIGHT
-    assert size_fig.data[1].legendrank < size_fig.data[0].legendrank
+    assert size_fig.data[0].marker.color == dashboard.C_ORANGE_LIGHT
+    assert size_fig.data[1].marker.color == dashboard.C_ORANGE_DARK
+    assert size_fig.data[0].legendrank < size_fig.data[1].legendrank
     assert [str(value) for value in size_fig.layout.yaxis.categoryarray] == [
-        row_label(cohort) for cohort in expected_visual
+        str(cohort) for cohort in expected_visual
     ]
-    for cohort in expected_desc:
-        label = row_label(cohort)
-        own_value = float(dict(zip(size_fig.data[1].y, size_fig.data[1].x))[label])
-        both_value = float(dict(zip(size_fig.data[0].y, size_fig.data[0].x))[label])
-        assert own_value == int(cohort_counts[cohort])
-        assert both_value == len(df)
+    for trace in size_fig.data:
+        cohort = str(trace.y[0])
+        assert float(trace.x[0]) == int(cohort_counts[cohort])
 
     percent_rendered = dashboard.update_page(
         "page4", None, None, None, None, None, None, "percent", df_input=df
@@ -490,18 +481,13 @@ def test_cohort_language_charts_stack_counts_and_percent():
         assert abs(sum(segments) - 100.0) < 0.2
 
     percent_size = percent_figures["Cohort Size by Language Cohort"]
-    for cohort in expected_desc:
-        label = row_label(cohort)
-        own_pct = float(
-            dict(zip(percent_size.data[1].y, percent_size.data[1].x))[label]
-        )
-        both_pct = float(
-            dict(zip(percent_size.data[0].y, percent_size.data[0].x))[label]
-        )
+    for trace in percent_size.data:
+        cohort = str(trace.y[0])
+        assert str(trace.text[0]).endswith("%")
         assert abs(
-            own_pct - round(int(cohort_counts[cohort]) / len(df) * 100, 1)
+            float(trace.x[0])
+            - round(int(cohort_counts[cohort]) / len(df) * 100, 1)
         ) < 0.01
-        assert both_pct == 100.0
 
 
 def test_overview_and_sector_pages_use_uniform_grid():

@@ -1442,7 +1442,6 @@ def update_page(
             .size()
             .sort_values(ascending=False, kind="mergesort")
         )
-        cohort_order = list(cohort_totals.index)
         cohort_order_visual = list(cohort_totals.sort_values().index)
 
         df_cohort_outcome = (
@@ -1475,31 +1474,19 @@ def update_page(
             legend_title="Outcome",
         )
 
-        cohort_count_labels = {
-            cohort: (
-                f"{cohort} vs {cohort} + "
-                + " + ".join(str(other) for other in cohort_order if other != cohort)
-            )
-            for cohort in cohort_order
+        cohort_colors = {
+            cohort: C_ORANGE_LIGHT if index == 0 else C_ORANGE_DARK
+            for index, cohort in enumerate(cohort_order_visual)
         }
-        df_cohort_size_rows = []
-        for cohort in cohort_order_visual:
-            row_label = cohort_count_labels[cohort]
-            df_cohort_size_rows.append(
-                {
-                    "Label": row_label,
-                    "Bar": "Own Cohort",
-                    "Total": int(cohort_totals[cohort]),
-                }
-            )
-            df_cohort_size_rows.append(
-                {
-                    "Label": row_label,
-                    "Bar": "Both Cohorts",
-                    "Total": total,
-                }
-            )
-        df_cohort_size = pd.DataFrame(df_cohort_size_rows)
+        df_cohort_size = pd.DataFrame(
+            {
+                "cohort": cohort_order_visual,
+                "Total": [
+                    int(cohort_totals[cohort])
+                    for cohort in cohort_order_visual
+                ],
+            }
+        )
         if as_percent:
             df_cohort_size["Total"] = (
                 df_cohort_size["Total"] / total * 100
@@ -1509,21 +1496,12 @@ def update_page(
             df_cohort_size["Text"] = df_cohort_size["Total"].astype(str)
         fig_cohort_size = _multi_h_bar_fig(
             df_cohort_size,
-            y_col="Label",
-            color_col="Bar",
+            y_col="cohort",
+            color_col="cohort",
             text_col="Text",
-            color_map={
-                "Own Cohort": C_ORANGE_LIGHT,
-                "Both Cohorts": C_ORANGE_DARK,
-            },
-            category_orders={
-                "Label": [
-                    cohort_count_labels[cohort]
-                    for cohort in cohort_order_visual
-                ],
-                "Bar": ["Both Cohorts", "Own Cohort"],
-            },
-            legend_title="Comparison",
+            color_map=cohort_colors,
+            category_orders={"cohort": cohort_order_visual},
+            legend_title="Cohort",
             barmode="group",
             textposition="inside",
         )
