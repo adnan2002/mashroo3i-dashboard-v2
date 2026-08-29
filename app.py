@@ -1237,6 +1237,7 @@ def update_page(
         )
 
         cnt_sec, missing_sec = _split_missing(dff["Sector"].value_counts())
+        top_sec = cnt_sec.sort_values(ascending=False).head(5).index
         cnt_sec = cnt_sec.sort_values().tail(5)
         note_sec = _missing_note(missing_sec, as_percent, total)
         fig_sec = _dist_fig(
@@ -1285,29 +1286,77 @@ def update_page(
             font=dict(family=CHART_FONT, size=11, color=C_TEXT),
         )
 
-        sec_rate = (
-            dff.groupby("Sector")["outcome_clean"]
-            .apply(lambda values: (values == "Accepted").mean() * 100)
-            .sort_values()
-            .tail(6)
+        df_sec_out = (
+            dff[dff["Sector"].isin(top_sec)]
+            .groupby(["Sector", "outcome_clean"], observed=True)
+            .size()
+            .reset_index(name="Total")
         )
-        fig_sec_rate = _bar_fig(
-            sec_rate.round(1).values,
-            sec_rate.index,
+        if as_percent:
+            sector_total = df_sec_out.groupby("Sector")["Total"].transform("sum")
+            df_sec_out["Total"] = (df_sec_out["Total"] / sector_total * 100).round(1)
+            df_sec_out["Text"] = df_sec_out["Total"].astype(str) + "%"
+        else:
+            df_sec_out["Text"] = df_sec_out["Total"].astype(str)
+
+        fig_sec_out = px.bar(
+            df_sec_out,
+            y="Sector",
+            x="Total",
+            color="outcome_clean",
             orientation="h",
-            text=sec_rate.round(1).values.astype(str) + "%",
+            barmode="stack",
+            color_discrete_map={
+                "Accepted": C_ORANGE_LIGHT,
+                "Rejected": C_ORANGE_DARK,
+                "Not Specified": C_GRAY,
+            },
+            text="Text",
+            category_orders={
+                "Sector": list(top_sec),
+                "outcome_clean": ["Accepted", "Rejected", "Not Specified"],
+            },
         )
+        fig_sec_out.update_traces(marker=dict(cornerradius=14), textposition="inside")
+        fig_sec_out.update_yaxes(
+            categoryorder="array",
+            categoryarray=list(top_sec),
+        )
+        _order_legend_colors(fig_sec_out)
+        fig_sec_out.update_layout(
+            margin=dict(l=10, r=30, t=40, b=10),
+            legend_title_text="Outcome",
+            legend=dict(
+                orientation="h",
+                y=1.2,
+                x=0.5,
+                xanchor="center",
+                font=dict(family=CHART_FONT, size=10),
+                title=dict(side="top center"),
+            ),
+            xaxis=dict(title="", visible=False, tickangle=0),
+            yaxis=dict(
+                title="",
+                showgrid=False,
+                tickangle=0,
+                tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family=CHART_FONT, size=11, color=C_TEXT),
+        )
+        fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
 
         return _page_shell(
             "Sectors & Applicant Type",
             kpis,
             _grid_row(
                 _card("Applicant Type vs Outcome", fig_type_out),
-                _card("Top Sectors", fig_sec),
+                _card("Sector vs Outcome", fig_sec_out),
             ),
             _grid_row(
+                _card("Top Sectors", fig_sec),
                 _card("Applicant Type Over Years", fig_y_type),
-                _card("Acceptance Rate by Sector", fig_sec_rate),
             ),
         )
 

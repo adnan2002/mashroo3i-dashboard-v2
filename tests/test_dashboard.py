@@ -243,6 +243,46 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
     assert fig.layout.annotations[0].text == f"{missing} not specified"
 
 
+def test_sector_vs_outcome_stacks_counts_and_percent():
+    df = _combined_fixture()
+    count_rendered = dashboard.update_page(
+        "page3", None, None, None, None, None, None, df_input=df
+    )
+    rows = count_rendered[2].children
+    assert [card.children[0].children for card in rows[0].children] == [
+        "Applicant Type vs Outcome",
+        "Sector vs Outcome",
+    ]
+    assert [card.children[0].children for card in rows[1].children] == [
+        "Top Sectors",
+        "Applicant Type Over Years",
+    ]
+
+    figures = dict(_card_figures(count_rendered))
+    fig = figures["Sector vs Outcome"]
+    sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
+    assert len(sectors) == 5
+    for sector in sectors:
+        per_trace = [dict(zip(trace.y, trace.x)) for trace in fig.data]
+        segments = [
+            float(mapping.get(sector, 0)) for mapping in per_trace
+        ]
+        assert abs(sum(segments) - len(df[df["Sector"] == sector])) < 0.01
+
+    percent_rendered = dashboard.update_page(
+        "page3", None, None, None, None, None, None, "percent", df_input=df
+    )
+    percent_fig = dict(_card_figures(percent_rendered))["Sector vs Outcome"]
+    for trace in percent_fig.data:
+        assert all(str(text).endswith("%") for text in trace.text)
+    for sector in sectors:
+        per_trace = [dict(zip(trace.y, trace.x)) for trace in percent_fig.data]
+        segments = [
+            float(mapping.get(sector, 0)) for mapping in per_trace
+        ]
+        assert abs(sum(segments) - 100.0) < 0.2
+
+
 def test_dist_fig_switches_between_counts_and_percent():
     counts = pd.Series([3, 1], index=["A", "B"])
     percent_fig = dashboard._dist_fig(
@@ -408,6 +448,7 @@ def main():
         test_team_size_chart_percent_mode,
         test_dist_fig_switches_between_counts_and_percent,
         test_top_sectors_excludes_not_specified_and_keeps_top_five,
+        test_sector_vs_outcome_stacks_counts_and_percent,
         test_attendance_bar_fig_shows_rate_with_note,
         test_attendance_sector_chart_stays_percent_when_counts_requested,
         test_cohort_page_removes_top_sectors_and_expands_applicant_type,
