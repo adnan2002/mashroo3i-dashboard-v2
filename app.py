@@ -770,7 +770,7 @@ def _team_size_fig(df, as_percent=False):
     return _add_missing_note(fig, note)
 
 
-def _card(title, fig, flex="1"):
+def _card(title, fig, flex="1", height=320):
     """Modern card with a consistent chart height, so nothing gets clipped."""
     return html.Div(
         className="chart-card",
@@ -797,7 +797,7 @@ def _card(title, fig, flex="1"):
                 children=[
                     dcc.Graph(
                         figure=fig,
-                        style={"height": "320px", "width": "100%"},
+                        style={"height": f"{height}px", "width": "100%"},
                         config={"displayModeBar": False},
                     )
                 ],
@@ -1358,12 +1358,12 @@ def update_page(
             "Sectors & Applicant Type",
             kpis,
             _grid_row(
-                _card("Applicant Type vs Outcome", fig_type_out),
-                _card("Sector vs Outcome", fig_sec_out),
+                _card("Applicant Type vs Outcome", fig_type_out, height=360),
+                _card("Sector vs Outcome", fig_sec_out, height=360),
             ),
             _grid_row(
-                _card("Top Sectors", fig_sec),
-                _card("Applicant Type Over Years", fig_y_type),
+                _card("Top Sectors", fig_sec, height=360),
+                _card("Applicant Type Over Years", fig_y_type, height=360),
             ),
         )
 
