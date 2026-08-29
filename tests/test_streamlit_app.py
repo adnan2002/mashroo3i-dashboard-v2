@@ -239,7 +239,7 @@ def test_education_chart_is_vertical_with_cleaned_labels():
     assert figure.layout.margin.b >= 40
 
 
-def test_vertical_chart_missing_note_sits_at_top():
+def test_vertical_chart_missing_note_sits_above():
     apps, _ = _load_pair()
     rendered = streamlit_app.dash_app.update_page(
         "page2", None, None, None, None, None, None, df_input=apps
@@ -252,7 +252,8 @@ def test_vertical_chart_missing_note_sits_at_top():
     annotations = figure.layout.annotations
     assert annotations and annotations[0].yref == "paper"
     assert annotations[0].y == 1.0
-    assert annotations[0].yanchor == "top"
+    assert annotations[0].yanchor == "bottom"
+    assert figure.layout.margin.t >= 40
 
 
 def test_major_chart_horizontal_original_sort_note_at_top():
@@ -290,7 +291,7 @@ def main():
         test_applications_by_year_and_cohort_shows_totals,
         test_cards_expose_missing_note,
         test_education_chart_is_vertical_with_cleaned_labels,
-        test_vertical_chart_missing_note_sits_at_top,
+        test_vertical_chart_missing_note_sits_above,
         test_major_chart_horizontal_original_sort_note_at_top,
     ]
     for test in tests:

@@ -590,25 +590,31 @@ def _missing_note(
 
 
 def _add_missing_note(fig, note, bottom=False):
-    """Add the missing-category note as a small in-chart annotation."""
+    """Add the missing-category note outside the plot area."""
     if not note:
         return fig
     if bottom:
         fig.update_layout(
             margin=dict(b=max(40, fig.layout.margin.b or 0)),
         )
+        y, yanchor, yshift = 0, "top", -6
+    else:
+        fig.update_layout(
+            margin=dict(t=max(40, fig.layout.margin.t or 0)),
+        )
+        y, yanchor, yshift = 1, "bottom", 6
     fig.add_annotation(
         text=note,
         xref="paper",
         yref="paper",
         x=1,
-        y=0 if bottom else 1,
+        y=y,
         xanchor="right",
-        yanchor="top",
+        yanchor=yanchor,
         showarrow=False,
         align="right",
         xshift=-6,
-        yshift=-6 if bottom else -4,
+        yshift=yshift,
         font=dict(family=CHART_FONT, size=10, color="#9B8B82"),
     )
     return fig

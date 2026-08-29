@@ -314,6 +314,23 @@ def test_dist_fig_switches_between_counts_and_percent():
     assert list(count_fig.data[0].text) == ["3", "1"]
 
 
+def test_notes_sit_outside_plot_area():
+    counts = pd.Series([3, 1], index=["A", "B"])
+    vertical = dashboard._dist_fig(
+        counts.index, counts.values, note="2 not specified"
+    )
+    assert vertical.layout.annotations[0].y == 1.0
+    assert vertical.layout.annotations[0].yanchor == "bottom"
+    assert vertical.layout.margin.t >= 40
+
+    horizontal = dashboard._dist_fig(
+        counts.index, counts.values, orientation="h", note="2 not specified"
+    )
+    assert horizontal.layout.annotations[0].y == 0.0
+    assert horizontal.layout.annotations[0].yanchor == "top"
+    assert horizontal.layout.margin.b >= 40
+
+
 def test_attendance_bar_fig_shows_rate_with_note():
     summary = pd.DataFrame(
         {
@@ -466,6 +483,7 @@ def main():
         test_distribution_charts_support_percent_mode,
         test_team_size_chart_percent_mode,
         test_dist_fig_switches_between_counts_and_percent,
+        test_notes_sit_outside_plot_area,
         test_top_sectors_excludes_not_specified_and_keeps_top_five,
         test_sector_vs_outcome_stacks_counts_and_percent,
         test_attendance_bar_fig_shows_rate_with_note,
