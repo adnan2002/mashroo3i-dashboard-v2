@@ -11,8 +11,8 @@ trial-and-error search over features, imputation, scaling, resampling,
 hyperparameters, and ensembles.
 
 Run:
-    ./venv/bin/python brinc_modeling.py            # full search
-    ./venv/bin/python brinc_modeling.py --quick    # fast validation of the code path
+    ./venv/bin/python features_build.py            # full search
+    ./venv/bin/python features_build.py --quick    # fast validation of the code path
 """
 
 from __future__ import annotations
@@ -24,42 +24,10 @@ import warnings
 from copy import deepcopy
 from pathlib import Path
 
-import joblib
 import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
-
-from catboost import CatBoostClassifier
-from imblearn.combine import SMOTEENN
-from imblearn.over_sampling import SMOTE, SMOTENC
-from imblearn.pipeline import make_pipeline as make_imb_pipeline
-from imblearn.under_sampling import RandomUnderSampler
-from lightgbm import LGBMClassifier
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import (
-    ExtraTreesClassifier,
-    HistGradientBoostingClassifier,
-    RandomForestClassifier,
-    VotingClassifier,
-)
-from sklearn.experimental import enable_iterative_imputer  # noqa: F401
-from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    confusion_matrix,
-    f1_score,
-    fbeta_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
-from sklearn.model_selection import StratifiedGroupKFold, train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, RobustScaler, StandardScaler
-from xgboost import XGBClassifier
 
 
 SEED = 42
@@ -211,6 +179,17 @@ def extract_business_age(text, app_year):
 # ---------------------------------------------------------------------------
 
 def compute_metrics(y_true, y_pred, y_prob):
+    from sklearn.metrics import (
+        accuracy_score,
+        average_precision_score,
+        confusion_matrix,
+        f1_score,
+        fbeta_score,
+        precision_score,
+        recall_score,
+        roc_auc_score,
+    )
+
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return {
         "accuracy": accuracy_score(y_true, y_pred),
@@ -228,6 +207,8 @@ def compute_metrics(y_true, y_pred, y_prob):
 
 
 def run_cv(estimator, X, y, groups, n_splits=5, n_jobs=-1):
+    from sklearn.model_selection import StratifiedGroupKFold
+
     cv = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
     oof = np.zeros(len(X))
     fold_metrics = []
@@ -278,6 +259,17 @@ def pos_weight(y):
 
 
 def make_model(name, params=None, weighted=True, n_jobs=-1, seed=SEED, pw=1.0):
+    from catboost import CatBoostClassifier
+    from lightgbm import LGBMClassifier
+    from sklearn.ensemble import (
+        ExtraTreesClassifier,
+        HistGradientBoostingClassifier,
+        RandomForestClassifier,
+        VotingClassifier,
+    )
+    from sklearn.linear_model import LogisticRegression
+    from xgboost import XGBClassifier
+
     params = dict(params or {})
     if name == "xgboost":
         model = XGBClassifier(
@@ -376,6 +368,17 @@ def make_model(name, params=None, weighted=True, n_jobs=-1, seed=SEED, pw=1.0):
 
 
 def build_preprocessor(num_cols, cat_cols, impute="median", scale="standard"):
+    from sklearn.compose import ColumnTransformer
+    from sklearn.experimental import enable_iterative_imputer  # noqa: F401
+    from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import (
+        MinMaxScaler,
+        OneHotEncoder,
+        RobustScaler,
+        StandardScaler,
+    )
+
     if impute == "none":
         num_pipe = [
             ("impute", "passthrough"),
@@ -420,6 +423,12 @@ def build_preprocessor(num_cols, cat_cols, impute="median", scale="standard"):
 def build_estimator(name, params, impute="median", scale="standard",
                     num_cols=None, cat_cols=None, weighted=True, sample=None,
                     n_jobs=-1, seed=SEED, pw=1.0):
+    from imblearn.combine import SMOTEENN
+    from imblearn.over_sampling import SMOTE, SMOTENC
+    from imblearn.pipeline import make_pipeline as make_imb_pipeline
+    from imblearn.under_sampling import RandomUnderSampler
+    from sklearn.pipeline import Pipeline
+
     model = make_model(name, params, weighted=weighted, n_jobs=n_jobs, seed=seed, pw=pw)
     if sample:
         pre = build_preprocessor(num_cols, cat_cols, impute=impute, scale=scale)
@@ -775,6 +784,9 @@ def engineer_features(raw: pd.DataFrame) -> tuple[pd.DataFrame, list[str], list[
 # ---------------------------------------------------------------------------
 
 def main():
+    import joblib
+    from sklearn.model_selection import train_test_split
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true")
     args = ap.parse_args()

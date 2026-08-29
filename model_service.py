@@ -2,7 +2,7 @@
 
 Self-contained deployment: the project's ``model/`` folder holds
 ``final_model.joblib``, ``final_threshold.json``, and the vendored
-``brinc_features.py`` (feature engineering). No dependency on
+``features_build.py`` (feature engineering). No dependency on
 ``~/Desktop/filter_3`` at runtime.
 
 The model directory is configurable with ``BRINC_MODEL_DIR``; it defaults to
@@ -43,7 +43,7 @@ def _require(path: Path) -> Path:
 
 
 def _ensure_feature_module() -> None:
-    """Make the vendored ``brinc_features`` importable from the model dir."""
+    """Make the vendored ``features_build`` importable from the model dir."""
     if str(MODEL_DIR) not in sys.path:
         sys.path.insert(0, str(MODEL_DIR))
 
@@ -85,10 +85,10 @@ def load_scorer() -> dict[str, Any]:
 
     _ensure_feature_module()
     try:
-        from brinc_features import engineer_features  # noqa: PLC0415, F401
+        from features_build import engineer_features  # noqa: PLC0415, F401
     except ImportError as exc:
         raise ModelUnavailableError(
-            "model/brinc_features.py is not importable; the model bundle is "
+            "model/features_build.py is not importable; the model bundle is "
             "incomplete."
         ) from exc
 
@@ -116,7 +116,7 @@ def score_with_model(raw: pd.DataFrame) -> pd.DataFrame:
     """
     scorer = load_scorer()
     _ensure_feature_module()
-    from brinc_features import engineer_features  # noqa: PLC0415
+    from features_build import engineer_features  # noqa: PLC0415
 
     frame = raw.copy()
     # The restored engineer_features derives y internally; a placeholder
@@ -163,9 +163,9 @@ def available() -> tuple[bool, str]:
     """Report whether the bundled model is ready to score."""
     _ensure_feature_module()
     try:
-        from brinc_features import engineer_features  # noqa: PLC0415, F401
+        from features_build import engineer_features  # noqa: PLC0415, F401
     except ImportError as exc:
-        return False, f"Model bundle incomplete (brinc_features): {exc}"
+        return False, f"Model bundle incomplete (features_build): {exc}"
     missing = [
         path
         for path in (

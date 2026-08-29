@@ -158,7 +158,7 @@ dashboard checkbox): the shortlist is re-ranked on the filtered population.
 
 The `model/` folder is self-contained: `final_model.joblib`,
 `final_threshold.json` (current operating point: 0.125), and vendored
-`brinc_features.py`. Set `BRINC_MODEL_DIR` to override the bundle location.
+`features_build.py`. Set `BRINC_MODEL_DIR` to override the bundle location.
 Edit `model/final_threshold.json` to raise/lower the predicted-accepted cutoff
 (lower = more recall; higher = fewer, more precise candidates).
 
