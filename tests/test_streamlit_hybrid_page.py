@@ -118,10 +118,54 @@ def test_real_dataset_option_hidden_when_file_missing():
         model_service.REAL_DATA_CSV = original
 
 
+def test_sidebar_full_csv_reused_by_selection_advisor():
+    if not REAL_CSV.exists():
+        return
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
+    app_uploader = next(
+        uploader
+        for uploader in at.file_uploader
+        if uploader.label == "Applications (required)"
+    )
+    app_uploader.upload(REAL_CSV.name, REAL_CSV.read_bytes())
+    at.run()
+    at = _open_ai_page(at, "Selection Advisor")
+    assert not at.exception
+    assert any(
+        button.label == "Rank candidates with the classifier model"
+        for button in at.button
+    ), "model CSV upload should be reused from the sidebar"
+    info_text = " ".join(str(element.value) for element in at.info)
+    assert "Upload the full applicant CSV" not in info_text
+    assert "does not include the full model schema" not in info_text
+
+
+def test_sidebar_partial_csv_still_requires_model_upload():
+    fixture = ROOT / "tests" / "fixtures" / "applications.csv"
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
+    app_uploader = next(
+        uploader
+        for uploader in at.file_uploader
+        if uploader.label == "Applications (required)"
+    )
+    app_uploader.upload(fixture.name, fixture.read_bytes())
+    at.run()
+    at = _open_ai_page(at, "Selection Advisor")
+    assert not at.exception
+    assert not any(
+        button.label == "Rank candidates with the classifier model"
+        for button in at.button
+    )
+    info_text = " ".join(str(element.value) for element in at.info)
+    assert "does not include the full model schema" in info_text
+
+
 def main():
     test_hybrid_page_ranks_with_real_model()
     test_hybrid_page_applies_year_filter_to_shortlist()
     test_real_dataset_option_hidden_when_file_missing()
+    test_sidebar_full_csv_reused_by_selection_advisor()
+    test_sidebar_partial_csv_still_requires_model_upload()
     print("PASS hybrid page ranking + filter tests")
 
 

@@ -46,6 +46,18 @@ ATTENDANCE_KEEP_COLUMNS = list(dash_app.ATTENDANCE_COLUMNS) + [
     "matched_application_id",
 ]
 
+# Columns that only the full Brinc applicant file has; used to decide whether
+# a sidebar upload can feed the Selection Advisor model directly.
+MODEL_INPUT_KEYS = (
+    "project_name",
+    "date_of_birth",
+    "individual_or_team",
+    "problem",
+    "solution",
+    "in_two_cohorts",
+    "sector_all",
+)
+
 
 def _children(value) -> list:
     """Return a component's children as a flat list."""
@@ -151,6 +163,21 @@ def load_applications(file_bytes: bytes, filename: str) -> pd.DataFrame:
             dash_app._clean_applicant_type
         )
     return df
+
+
+def load_raw_upload(file_bytes: bytes, filename: str) -> pd.DataFrame:
+    """Load the full uploaded file, preferring a sheet with the model schema."""
+    if filename.lower().endswith(".csv"):
+        return pd.read_csv(io.BytesIO(file_bytes), encoding="utf-8-sig")
+    sheets = pd.read_excel(io.BytesIO(file_bytes), sheet_name=None)
+    for sheet in sheets.values():
+        if _has_model_schema(sheet):
+            return sheet
+    return next(iter(sheets.values()))
+
+
+def _has_model_schema(df: pd.DataFrame) -> bool:
+    return all(key in df.columns for key in MODEL_INPUT_KEYS)
 
 
 @st.cache_data(show_spinner=False)
@@ -559,13 +586,20 @@ def _render_hybrid_page(
     if agent_ok:
         st.caption(agent_message)
 
+    raw = st.session_state.get("brinc_raw")
+    if raw is None:
+        reused = st.session_state.get("raw_applications")
+        if reused is not None and _has_model_schema(reused):
+            st.session_state["brinc_raw"] = reused
+            raw = reused
+
     uploaded = st.file_uploader(
         "Applications CSV",
         type=["csv"],
         key="brinc-uploader",
-        help="The model needs the full 54-column schema (problem/solution "
-        "text, sector, DOB, etc.). Uploaded dashboards built for the other "
-        "pages are not enough.",
+        help="Optional: replace the data already available. The model needs "
+        "the full 54-column schema (problem/solution text, sector, DOB, "
+        "etc.).",
     )
     real_path = model_service.REAL_DATA_CSV
     use_real = False
@@ -588,9 +622,14 @@ def _render_hybrid_page(
             real_path, encoding="utf-8-sig"
         )
 
-    raw = st.session_state.get("brinc_raw")
     if raw is None:
-        if real_path.exists():
+        candidate = st.session_state.get("raw_applications")
+        if candidate is not None and not _has_model_schema(candidate):
+            st.info(
+                "The uploaded applications file does not include the full "
+                "model schema. Upload the complete Brinc applicant CSV below."
+            )
+        elif real_path.exists():
             st.info(
                 "Upload the full applicant CSV (or tick the real-data option) "
                 "to start."
@@ -1185,6 +1224,9 @@ def main() -> None:
 
         if uploaded_apps is not None:
             try:
+                st.session_state["raw_applications"] = load_raw_upload(
+                    uploaded_apps.getvalue(), uploaded_apps.name
+                )
                 st.session_state["applications"] = load_applications(
                     uploaded_apps.getvalue(), uploaded_apps.name
                 )
