@@ -406,23 +406,66 @@ def test_cohort_page_removes_top_sectors_and_expands_applicant_type():
     )
     rows = rendered[2].children
     assert len(rows) == 2
-    titles = [card.children[0].children for row in rows for card in row.children]
+    first_row_titles = [card.children[0].children for card in rows[0].children]
+    second_row_titles = [card.children[0].children for card in rows[1].children]
+    assert first_row_titles == [
+        "Language Cohort vs Outcome",
+        "Cohort Size by Language Cohort",
+    ]
+    assert second_row_titles == ["Cohort Size", "Applicant Type by Language Cohort"]
+    titles = first_row_titles + second_row_titles
     assert "Top Sectors by Cohort" not in titles
-    assert titles.count("Applicant Type by Language Cohort") == 1
-    assert titles.count("Acceptance Rate by Language Cohort") == 1
-    second_row_cards = rows[1].children
-    assert len(second_row_cards) == 1
-    assert (
-        second_row_cards[0].children[0].children
-        == "Applicant Type by Language Cohort"
-    )
-    assert second_row_cards[0].style.get("flex") == "1"
-    cohort_size_fig = rows[0].children[1].children[1].children[0].figure
+    assert "Acceptance Rate by Language Cohort" not in titles
+    cohort_size_fig = rows[1].children[0].children[1].children[0].figure
     expected_ids = sorted(
         str(value) for value in df["cohort_id"].dropna().unique()
     )
     assert list(cohort_size_fig.data[0].x) == expected_ids
     assert cohort_size_fig.layout.xaxis.type == "category"
+
+
+def test_cohort_language_charts_stack_counts_and_percent():
+    df = _combined_fixture()
+    count_rendered = dashboard.update_page(
+        "page4", None, None, None, None, None, None, df_input=df
+    )
+    figures = dict(_card_figures(count_rendered))
+    expected_cohorts = list(
+        df["cohort"].value_counts()
+        .sort_values(ascending=False, kind="mergesort")
+        .index
+    )
+
+    for title in ("Language Cohort vs Outcome", "Cohort Size by Language Cohort"):
+        fig = figures[title]
+        assert fig.data[0].orientation == "h"
+        assert [str(value) for value in fig.layout.yaxis.categoryarray] == [
+            str(value) for value in expected_cohorts
+        ]
+        for cohort in expected_cohorts:
+            segments = [
+                float(dict(zip(trace.y, trace.x)).get(cohort, 0))
+                for trace in fig.data
+            ]
+            assert abs(sum(segments) - len(df[df["cohort"] == cohort])) < 0.01
+
+    percent_rendered = dashboard.update_page(
+        "page4", None, None, None, None, None, None, "percent", df_input=df
+    )
+    percent_figures = dict(_card_figures(percent_rendered))
+    for title in ("Language Cohort vs Outcome", "Cohort Size by Language Cohort"):
+        fig = percent_figures[title]
+        assert [str(value) for value in fig.layout.yaxis.categoryarray] == [
+            str(value) for value in expected_cohorts
+        ]
+        for trace in fig.data:
+            assert all(str(text).endswith("%") for text in trace.text)
+        for cohort in expected_cohorts:
+            segments = [
+                float(dict(zip(trace.y, trace.x)).get(cohort, 0))
+                for trace in fig.data
+            ]
+            assert abs(sum(segments) - 100.0) < 0.2
 
 
 def test_overview_and_sector_pages_use_uniform_grid():
@@ -489,6 +532,7 @@ def main():
         test_attendance_bar_fig_shows_rate_with_note,
         test_attendance_sector_chart_stays_percent_when_counts_requested,
         test_cohort_page_removes_top_sectors_and_expands_applicant_type,
+        test_cohort_language_charts_stack_counts_and_percent,
         test_overview_and_sector_pages_use_uniform_grid,
     ]
     for test in tests:

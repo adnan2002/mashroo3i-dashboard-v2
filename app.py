@@ -667,6 +667,59 @@ def _order_legend_colors(fig):
             trace.legendrank = color_order[color]
 
 
+def _stacked_h_bar_fig(
+    df,
+    y_col,
+    color_col,
+    text_col,
+    color_map,
+    category_orders,
+    legend_title,
+    radius=14,
+):
+    """Horizontal stacked bar chart with consistent styling."""
+    fig = px.bar(
+        df,
+        y=y_col,
+        x="Total",
+        color=color_col,
+        orientation="h",
+        barmode="stack",
+        color_discrete_map=color_map,
+        text=text_col,
+        category_orders=category_orders,
+    )
+    fig.update_traces(marker=dict(cornerradius=radius), textposition="inside")
+    fig.update_yaxes(
+        categoryorder="array",
+        categoryarray=list(category_orders[y_col]),
+    )
+    _order_legend_colors(fig)
+    fig.update_layout(
+        margin=dict(l=10, r=30, t=40, b=10),
+        legend_title_text=legend_title,
+        legend=dict(
+            orientation="h",
+            y=1.2,
+            x=0.5,
+            xanchor="center",
+            font=dict(family=CHART_FONT, size=10),
+            title=dict(side="top center"),
+        ),
+        xaxis=dict(title="", visible=False, tickangle=0),
+        yaxis=dict(
+            title="",
+            showgrid=False,
+            tickangle=0,
+            tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
+        ),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=CHART_FONT, size=11, color=C_TEXT),
+    )
+    return fig
+
+
 def _attendance_bar_fig(
     summary,
     by,
@@ -1378,20 +1431,67 @@ def update_page(
         )
 
     elif page == "page4":
-        df_rate = (
-            dff.groupby("cohort")["outcome_clean"]
-            .value_counts(normalize=True)
-            .unstack(fill_value=0)
-            .reset_index()
+        cohort_totals = (
+            dff.groupby("cohort", observed=True)
+            .size()
+            .sort_values(ascending=False, kind="mergesort")
         )
-        df_rate["Acceptance Rate %"] = (
-            (df_rate["Accepted"] * 100).round(1) if "Accepted" in df_rate.columns else 0
+        cohort_order = list(cohort_totals.index)
+
+        df_cohort_outcome = (
+            dff.groupby(["cohort", "outcome_clean"], observed=True)
+            .size()
+            .reset_index(name="Total")
         )
-        df_rate = df_rate.sort_values("Acceptance Rate %", ascending=False)
-        fig_rate = _bar_fig(
-            df_rate["cohort"],
-            df_rate["Acceptance Rate %"],
-            text=df_rate["Acceptance Rate %"].astype(str) + "%",
+        if as_percent:
+            cohort_total = df_cohort_outcome.groupby("cohort")["Total"].transform("sum")
+            df_cohort_outcome["Total"] = (
+                df_cohort_outcome["Total"] / cohort_total * 100
+            ).round(1)
+            df_cohort_outcome["Text"] = df_cohort_outcome["Total"].astype(str) + "%"
+        else:
+            df_cohort_outcome["Text"] = df_cohort_outcome["Total"].astype(str)
+        fig_cohort_outcome = _stacked_h_bar_fig(
+            df_cohort_outcome,
+            y_col="cohort",
+            color_col="outcome_clean",
+            text_col="Text",
+            color_map={
+                "Accepted": C_ORANGE_LIGHT,
+                "Rejected": C_ORANGE_DARK,
+                "Not Specified": C_GRAY,
+            },
+            category_orders={
+                "cohort": cohort_order,
+                "outcome_clean": ["Accepted", "Rejected", "Not Specified"],
+            },
+            legend_title="Outcome",
+        )
+
+        df_cohort_type = (
+            dff.groupby(["cohort", "applicant_type"], observed=True)
+            .size()
+            .reset_index(name="Total")
+        )
+        if as_percent:
+            cohort_total = df_cohort_type.groupby("cohort")["Total"].transform("sum")
+            df_cohort_type["Total"] = (
+                df_cohort_type["Total"] / cohort_total * 100
+            ).round(1)
+            df_cohort_type["Text"] = df_cohort_type["Total"].astype(str) + "%"
+        else:
+            df_cohort_type["Text"] = df_cohort_type["Total"].astype(str)
+        fig_cohort_size = _stacked_h_bar_fig(
+            df_cohort_type,
+            y_col="cohort",
+            color_col="applicant_type",
+            text_col="Text",
+            color_map={"Individual": C_ORANGE_DARK, "Team": C_ORANGE_LIGHT},
+            category_orders={
+                "cohort": cohort_order,
+                "applicant_type": ["Individual", "Team"],
+            },
+            legend_title="Applicant Type",
         )
 
         cohort_size_col = (
@@ -1453,11 +1553,12 @@ def update_page(
         return _page_shell(
             "Cohort Comparison",
             kpis,
-            _row(
-                _card("Acceptance Rate by Language Cohort", fig_rate),
-                _card("Cohort Size", fig_cohort),
+            _grid_row(
+                _card("Language Cohort vs Outcome", fig_cohort_outcome),
+                _card("Cohort Size by Language Cohort", fig_cohort_size),
             ),
-            _row(
+            _grid_row(
+                _card("Cohort Size", fig_cohort),
                 _card("Applicant Type by Language Cohort", fig_type_cohort),
             ),
         )
