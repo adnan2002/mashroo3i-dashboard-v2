@@ -1,0 +1,21 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local secrets
+.env
+
+# Data files can be regenerated with make_dummy_mashroo3i.py
+cleaned_mashroo3i*.csv
+dummy_mashroo3i*.csv
+dummy_mashroo3i*.xlsx
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store

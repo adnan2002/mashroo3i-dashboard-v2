@@ -23,10 +23,8 @@ pip install -r requirements.txt
 
 ## Run
 
-Local only:
-
 ```bash
-python app.py --no-ngrok
+python app.py
 ```
 
 Then open <http://localhost:8050> and upload a CSV (for example
@@ -40,16 +38,6 @@ streamlit run streamlit_app.py
 ```
 
 Then open <http://localhost:8501> and upload a CSV or Excel file.
-
-Publicly via ngrok:
-
-```bash
-cp .env.example .env   # then put your ngrok authtoken in .env
-python app.py
-```
-
-The public URL is printed on startup. If the token is missing or ngrok fails,
-the dashboard still starts locally instead of crashing.
 
 ## Production
 

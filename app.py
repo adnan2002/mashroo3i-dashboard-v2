@@ -4,11 +4,7 @@ Converted from ``Dashboard_Mashroo3i.ipynb`` into a plain Python application.
 
 Run locally::
 
-    python app.py --no-ngrok
-
-Run with an ngrok tunnel::
-
-    python app.py          # needs NGROK_AUTHTOKEN in the environment or .env
+    python app.py
 
 Serve with a production WSGI server::
 
@@ -21,8 +17,6 @@ import argparse
 import base64
 import io
 import os
-import sys
-import time
 
 import pandas as pd
 import plotly.express as px
@@ -1498,61 +1492,12 @@ def update_page(
 # ---------------------------------------------------------------------------
 
 
-def _load_env_file(path=".env"):
-    """Minimal .env loader so the token does not have to live in code."""
-    env = {}
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, _, value = line.partition("=")
-                env[key.strip()] = value.strip().strip("\"'")
-    except FileNotFoundError:
-        pass
-    return env
-
-
-def start_ngrok_tunnel(port):
-    """Create an ngrok tunnel for ``port``; return the public URL or None."""
-    token = os.environ.get("NGROK_AUTHTOKEN") or _load_env_file().get("NGROK_AUTHTOKEN")
-    if not token:
-        print(
-            "[warn] NGROK_AUTHTOKEN is not set (env or .env); running without a tunnel.",
-            file=sys.stderr,
-        )
-        return None
-    try:
-        from pyngrok import ngrok
-
-        ngrok.set_auth_token(token)
-        # Clear any stale ngrok agents/tunnels left over from previous runs.
-        ngrok.kill()
-        time.sleep(0.5)
-        try:
-            for tunnel in ngrok.get_tunnels():
-                ngrok.disconnect(tunnel.public_url)
-        except Exception:
-            pass
-        tunnel = ngrok.connect(port, bind_tls=True)
-        return tunnel.public_url
-    except Exception as exc:  # never block the dashboard on tunnel issues
-        print(f"[warn] could not start ngrok tunnel: {exc}", file=sys.stderr)
-        return None
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Mashroo3i analytics dashboard")
     parser.add_argument("--host", default=os.environ.get("DASH_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("DASH_PORT", "8050")))
     parser.add_argument("--debug", action="store_true", default=bool(os.environ.get("DASH_DEBUG")))
-    parser.add_argument("--no-ngrok", action="store_true", help="skip the ngrok tunnel")
     args = parser.parse_args(argv)
-
-    public_url = None if args.no_ngrok else start_ngrok_tunnel(args.port)
-    if public_url:
-        print(f"Public dashboard: {public_url}")
 
     display_host = "localhost" if args.host in ("0.0.0.0", "") else args.host
     print(f"Local dashboard: http://{display_host}:{args.port}")
