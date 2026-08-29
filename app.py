@@ -618,6 +618,7 @@ def _dist_fig(
     total=None,
     precision=1,
     note=None,
+    note_bottom=None,
 ):
     """Single-variable distribution bar chart showing counts or % of total."""
     values = pd.Series(values, index=labels, dtype=float)
@@ -633,7 +634,9 @@ def _dist_fig(
         fig = _bar_fig(shown.values, labels, orientation="h", text=text)
     else:
         fig = _bar_fig(labels, shown.values, orientation="v", text=text)
-    return _add_missing_note(fig, note, bottom=(orientation == "h"))
+    if note_bottom is None:
+        note_bottom = orientation == "h"
+    return _add_missing_note(fig, note, bottom=note_bottom)
 
 
 def _order_legend_colors(fig):
@@ -1237,15 +1240,18 @@ def update_page(
         )
 
         cnt_sec, missing_sec = _split_missing(dff["Sector"].value_counts())
-        top_sec = cnt_sec.sort_values(ascending=False).head(5).index
-        cnt_sec = cnt_sec.sort_values().tail(5)
+        top_sec_counts = cnt_sec.sort_values(
+            ascending=False, kind="mergesort"
+        ).head(5)
+        top_sec = top_sec_counts.index
         note_sec = _missing_note(missing_sec, as_percent, total)
         fig_sec = _dist_fig(
-            cnt_sec.index,
-            cnt_sec.values,
+            top_sec_counts.index,
+            top_sec_counts.values,
             orientation="h",
             as_percent=as_percent,
             note=note_sec,
+            note_bottom=False,
         )
 
         cnt_y_type = dff.groupby(["year", "applicant_type"]).size().reset_index(name="Total")
@@ -1345,7 +1351,7 @@ def update_page(
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family=CHART_FONT, size=11, color=C_TEXT),
         )
-        fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
+        fig_sec_out = _add_missing_note(fig_sec_out, note_sec)
 
         return _page_shell(
             "Sectors & Applicant Type",

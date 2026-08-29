@@ -237,10 +237,17 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
         "page3", None, None, None, None, None, None, df_input=df
     )
     fig = dict(_card_figures(rendered))["Top Sectors"]
-    assert len(list(fig.data[0].y)) == 5
-    assert "Not Specified" not in list(fig.data[0].y)
+    sectors = [str(value) for value in fig.data[0].y]
+    cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())
+    expected_sectors = list(
+        cnt_sec.sort_values(ascending=False, kind="mergesort").head(5).index
+    )
+    assert sectors == expected_sectors
+    assert len(sectors) == 5
+    assert "Not Specified" not in sectors
     missing = int((df["Sector"] == "Not Specified").sum())
     assert fig.layout.annotations[0].text == f"{missing} not specified"
+    assert fig.layout.annotations[0].y == 1
 
 
 def test_sector_vs_outcome_stacks_counts_and_percent():
@@ -261,7 +268,13 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
     figures = dict(_card_figures(count_rendered))
     fig = figures["Sector vs Outcome"]
     sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
+    cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())
+    expected_sectors = list(
+        cnt_sec.sort_values(ascending=False, kind="mergesort").head(5).index
+    )
+    assert sectors == expected_sectors
     assert len(sectors) == 5
+    assert fig.layout.annotations[0].y == 1
     for sector in sectors:
         per_trace = [dict(zip(trace.y, trace.x)) for trace in fig.data]
         segments = [
