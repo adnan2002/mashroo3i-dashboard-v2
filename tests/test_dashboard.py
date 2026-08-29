@@ -250,7 +250,7 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
     assert "Not Specified" not in sectors
     missing = int((df["Sector"] == "Not Specified").sum())
     assert fig.layout.annotations[0].text == f"{missing} not specified"
-    assert fig.layout.annotations[0].y == 1
+    assert fig.layout.annotations[0].y == 0
 
 
 def test_sector_vs_outcome_stacks_counts_and_percent():
@@ -280,7 +280,7 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
     )
     assert sectors == expected_sectors
     assert len(sectors) == 5
-    assert fig.layout.annotations[0].y == 1
+    assert fig.layout.annotations[0].y == 0
     for sector in sectors:
         per_trace = [dict(zip(trace.y, trace.x)) for trace in fig.data]
         segments = [

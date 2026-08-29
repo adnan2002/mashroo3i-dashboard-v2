@@ -1252,7 +1252,7 @@ def update_page(
             orientation="h",
             as_percent=as_percent,
             note=note_sec,
-            note_bottom=False,
+            note_bottom=True,
         )
 
         cnt_y_type = dff.groupby(["year", "applicant_type"]).size().reset_index(name="Total")
@@ -1352,7 +1352,7 @@ def update_page(
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family=CHART_FONT, size=11, color=C_TEXT),
         )
-        fig_sec_out = _add_missing_note(fig_sec_out, note_sec)
+        fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
 
         return _page_shell(
             "Sectors & Applicant Type",
