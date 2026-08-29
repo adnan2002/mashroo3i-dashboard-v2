@@ -1502,7 +1502,7 @@ def update_page(
             color_map=cohort_colors,
             category_orders={"cohort": cohort_order_visual},
             legend_title="Cohort",
-            barmode="group",
+            barmode="stack",
             textposition="inside",
         )
 
