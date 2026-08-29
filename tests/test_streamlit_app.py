@@ -235,7 +235,8 @@ def test_education_chart_is_vertical_with_cleaned_labels():
     assert figure.layout.xaxis.tickangle != 90
     assert figure.layout.annotations
     assert figure.layout.annotations[0].y == 0.0
-    assert figure.layout.annotations[0].yanchor == "bottom"
+    assert figure.layout.annotations[0].yanchor == "top"
+    assert figure.layout.margin.b >= 40
 
 
 def test_vertical_chart_missing_note_sits_at_top():
@@ -269,7 +270,8 @@ def test_major_chart_horizontal_original_sort_note_at_top():
     assert values == sorted(values)
     assert figure.layout.annotations
     assert figure.layout.annotations[0].y == 0.0
-    assert figure.layout.annotations[0].yanchor == "bottom"
+    assert figure.layout.annotations[0].yanchor == "top"
+    assert figure.layout.margin.b >= 40
 
 
 def main():
