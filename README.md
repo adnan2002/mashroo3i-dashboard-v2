@@ -141,8 +141,9 @@ annotation rather than a replacement for the model ranking.
 The app has a **Selection Advisor** page that runs the same cascade
 interactively:
 
-1. Upload the full Brinc applicant CSV (or tick "Use the real
-   dashboard_ready.csv"), then **Rank candidates with the Brinc model** --
+1. Upload the full Brinc applicant CSV (the "Use the real
+   dashboard_ready.csv" shortcut only appears when that local dev file is
+   present), then **Rank candidates with the Brinc model** --
    loads the bundled `final_model.joblib` from the project `model/` folder
    and shows the primary shortlist.
 2. Pick how many of the top candidates to review, then **Run agent on top N** --

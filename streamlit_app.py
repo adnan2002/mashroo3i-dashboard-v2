@@ -567,12 +567,15 @@ def _render_hybrid_page(
         "text, sector, DOB, etc.). Uploaded dashboards built for the other "
         "pages are not enough.",
     )
-    use_real = st.checkbox(
-        "Use the real dashboard_ready.csv instead",
-        value=False,
-        key="brinc-use-real",
-        help=f"Loads {model_service.REAL_DATA_CSV}.",
-    )
+    real_path = model_service.REAL_DATA_CSV
+    use_real = False
+    if real_path.exists():
+        use_real = st.checkbox(
+            "Use the real dashboard_ready.csv instead",
+            value=False,
+            key="brinc-use-real",
+            help=f"Loads {real_path}.",
+        )
     if uploaded is not None:
         try:
             st.session_state["brinc_raw"] = pd.read_csv(
@@ -581,20 +584,19 @@ def _render_hybrid_page(
         except Exception as exc:
             st.error(f"Could not read the uploaded CSV: {exc}")
     elif use_real:
-        real_path = model_service.REAL_DATA_CSV
-        if real_path.exists():
-            st.session_state["brinc_raw"] = pd.read_csv(
-                real_path, encoding="utf-8-sig"
-            )
-        else:
-            st.warning(f"Real dataset not found at {real_path}.")
+        st.session_state["brinc_raw"] = pd.read_csv(
+            real_path, encoding="utf-8-sig"
+        )
 
     raw = st.session_state.get("brinc_raw")
     if raw is None:
-        st.info(
-            "Upload the full applicant CSV (or tick the real-data option) "
-            "to start."
-        )
+        if real_path.exists():
+            st.info(
+                "Upload the full applicant CSV (or tick the real-data option) "
+                "to start."
+            )
+        else:
+            st.info("Upload the full applicant CSV to start.")
         return
 
     filtered_raw = _filter_raw_for_selection(

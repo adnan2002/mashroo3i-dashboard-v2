@@ -96,9 +96,32 @@ def test_hybrid_page_applies_year_filter_to_shortlist():
     assert shortlist_sliders[0].max == accepted_count
 
 
+def test_real_dataset_option_hidden_when_file_missing():
+    original = model_service.REAL_DATA_CSV
+    model_service.REAL_DATA_CSV = Path(
+        "/tmp/does-not-exist-dashboard_ready.csv"
+    )
+    try:
+        at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
+        assert not at.exception
+        at = _open_ai_page(at, "Selection Advisor")
+        assert not at.exception
+        assert not any(
+            checkbox.label == "Use the real dashboard_ready.csv instead"
+            for checkbox in at.checkbox
+        )
+        warning_text = " ".join(
+            str(element.value) for element in at.warning
+        )
+        assert "Real dataset not found" not in warning_text
+    finally:
+        model_service.REAL_DATA_CSV = original
+
+
 def main():
     test_hybrid_page_ranks_with_real_model()
     test_hybrid_page_applies_year_filter_to_shortlist()
+    test_real_dataset_option_hidden_when_file_missing()
     print("PASS hybrid page ranking + filter tests")
 
 
