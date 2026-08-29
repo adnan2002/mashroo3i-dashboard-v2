@@ -240,7 +240,10 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
     sectors = [str(value) for value in fig.data[0].y]
     cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())
     expected_sectors = list(
-        cnt_sec.sort_values(ascending=False, kind="mergesort").head(5).index
+        cnt_sec.sort_values(ascending=False, kind="mergesort")
+        .head(5)
+        .sort_values()
+        .index
     )
     assert sectors == expected_sectors
     assert len(sectors) == 5
@@ -270,7 +273,10 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
     sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
     cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())
     expected_sectors = list(
-        cnt_sec.sort_values(ascending=False, kind="mergesort").head(5).index
+        cnt_sec.sort_values(ascending=False, kind="mergesort")
+        .head(5)
+        .sort_values()
+        .index
     )
     assert sectors == expected_sectors
     assert len(sectors) == 5

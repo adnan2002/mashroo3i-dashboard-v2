@@ -1240,14 +1240,15 @@ def update_page(
         )
 
         cnt_sec, missing_sec = _split_missing(dff["Sector"].value_counts())
-        top_sec_counts = cnt_sec.sort_values(
+        top_sec_desc = cnt_sec.sort_values(
             ascending=False, kind="mergesort"
         ).head(5)
-        top_sec = top_sec_counts.index
+        top_sec_asc = top_sec_desc.sort_values()
+        top_sec = top_sec_desc.index
         note_sec = _missing_note(missing_sec, as_percent, total)
         fig_sec = _dist_fig(
-            top_sec_counts.index,
-            top_sec_counts.values,
+            top_sec_asc.index,
+            top_sec_asc.values,
             orientation="h",
             as_percent=as_percent,
             note=note_sec,
@@ -1319,14 +1320,14 @@ def update_page(
             },
             text="Text",
             category_orders={
-                "Sector": list(top_sec),
+                "Sector": list(top_sec_asc.index),
                 "outcome_clean": ["Accepted", "Rejected", "Not Specified"],
             },
         )
         fig_sec_out.update_traces(marker=dict(cornerradius=14), textposition="inside")
         fig_sec_out.update_yaxes(
             categoryorder="array",
-            categoryarray=list(top_sec),
+            categoryarray=list(top_sec_asc.index),
         )
         _order_legend_colors(fig_sec_out)
         fig_sec_out.update_layout(
