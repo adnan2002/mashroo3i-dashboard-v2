@@ -75,14 +75,8 @@ The page shows a live staged status ("Evaluating / Searching the web (i/6) /
 Generating your /25 selection score") while working, then renders the
 structured score card, dashboard insights, and sources when finished.
 
-The dashboard summary now lives on its own **Dashboard Summary** page (AI
-section): it uses the agent to summarize the uploaded applications/attendance
-data and presents KPIs, an overview, highlights, top categories, and
-acceptance-by-year in styled cards. It respects the same sidebar filters as
-the Selection Advisor.
-
 The sidebar is split into two sections: **Dashboard** (the analytics pages)
-and **AI** (Idea Validator, Dashboard Summary, Selection Advisor).
+and **AI** (Idea Validator, Selection Advisor).
 
 The agent uses the already-uploaded CSVs; no separate upload is needed. Add
 these keys to Streamlit secrets:

@@ -70,6 +70,10 @@ def test_hybrid_page_ranks_with_real_model():
         primary_frames[0]["predicted_accepted"].astype(str).unique()
     )
     assert labels <= {"Accepted", "Rejected"}, labels
+    metric_labels = [metric.label for metric in at.metric]
+    assert "Applicants scored" in metric_labels
+    assert "Predicted Accepted" in metric_labels
+    assert "Top probability" not in metric_labels
 
 
 def test_hybrid_page_applies_year_filter_to_shortlist():
@@ -171,12 +175,41 @@ def test_sidebar_partial_csv_still_requires_model_upload():
     assert "does not include the full model schema" in info_text
 
 
+def test_candidate_review_rows_use_selection_score_label():
+    ranked = pd.DataFrame(
+        {
+            "identity": ["a", "b"],
+            "model_rank": [1, 2],
+            "project_name": ["Alpha", "Beta"],
+            "accept_probability": [0.7, 0.5],
+        }
+    )
+    results = {
+        "a": {
+            "score": {
+                "total_score": 19.0,
+                "verdict": "Strong",
+                "sources": [],
+            }
+        },
+        "b": {"error": "boom"},
+    }
+    rows = streamlit_app._candidate_review_rows(ranked, results, 2)
+    assert rows[0]["Selection score"] == "19.0/25"
+    assert rows[0]["Verdict"] == "Strong"
+    assert rows[0]["Status"] == "Done"
+    assert "Innovation" not in rows[0]
+    assert rows[1]["Selection score"] == "N/A"
+    assert rows[1]["Status"] == "Error"
+
+
 def main():
     test_hybrid_page_ranks_with_real_model()
     test_hybrid_page_applies_year_filter_to_shortlist()
     test_real_dataset_option_hidden_when_file_missing()
     test_sidebar_full_csv_reused_by_selection_advisor()
     test_sidebar_partial_csv_still_requires_model_upload()
+    test_candidate_review_rows_use_selection_score_label()
     print("PASS hybrid page ranking + filter tests")
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 
@@ -338,6 +339,71 @@ def test_parse_json_object_handles_fences_and_whitespace():
     raise AssertionError("expected ValueError for unbalanced JSON")
 
 
+def _fake_message_response(text="hello"):
+    message = SimpleNamespace(content=text, tool_calls=[])
+    return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+
+def _fake_stream_chunk(text="hello"):
+    delta = SimpleNamespace(content=text)
+    return SimpleNamespace(choices=[SimpleNamespace(delta=delta)])
+
+
+class _RecordingCompletions:
+    def __init__(self):
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        if kwargs.get("stream"):
+            return [_fake_stream_chunk()]
+        return _fake_message_response()
+
+
+class _MockOpenAI:
+    def __init__(self):
+        self.chat = SimpleNamespace(completions=_RecordingCompletions())
+
+
+def _new_client(seed=None, temperature=None):
+    client = idea_agent.DeepSeekClient(
+        api_key="test-key", seed=seed, temperature=temperature
+    )
+    mock = _MockOpenAI()
+    client._client = mock
+    return client, mock.chat.completions
+
+
+def test_deepseek_client_defaults_to_deterministic_sampling():
+    client, completions = _new_client()
+    client.complete([{"role": "user", "content": "hi"}])
+    assert completions.kwargs["temperature"] == idea_agent.AGENT_TEMPERATURE
+    assert completions.kwargs["seed"] == idea_agent.AGENT_SEED
+    assert completions.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_client_explicit_overrides_win():
+    client, completions = _new_client()
+    client.complete(
+        [{"role": "user", "content": "hi"}],
+        temperature=0.5,
+        seed=7,
+    )
+    assert completions.kwargs["temperature"] == 0.5
+    assert completions.kwargs["seed"] == 7
+    assert completions.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_client_stream_forwards_deterministic_sampling():
+    client, completions = _new_client()
+    result = client.stream_complete([{"role": "user", "content": "hi"}])
+    assert completions.kwargs["stream"] is True
+    assert completions.kwargs["temperature"] == idea_agent.AGENT_TEMPERATURE
+    assert completions.kwargs["seed"] == idea_agent.AGENT_SEED
+    assert completions.kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert result == "hello"
+
+
 def main():
     tests = [
         test_score_payload_math_clamps_and_weighs,
@@ -349,6 +415,9 @@ def main():
         test_run_loop_guarantees_both_capabilities_when_model_stays_silent,
         test_complete_tool_results_are_not_clobbered_by_partial_final_answer,
         test_parse_json_object_handles_fences_and_whitespace,
+        test_deepseek_client_defaults_to_deterministic_sampling,
+        test_deepseek_client_explicit_overrides_win,
+        test_deepseek_client_stream_forwards_deterministic_sampling,
     ]
     for test in tests:
         test()

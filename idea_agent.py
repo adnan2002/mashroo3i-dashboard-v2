@@ -41,6 +41,9 @@ DEEPSEEK_BASE_URL = _secret(
 )
 DEFAULT_MODEL = "deepseek-v4-flash"
 AGENT_MODEL = _secret("AGENT_MODEL", DEFAULT_MODEL)
+AGENT_TEMPERATURE = 0.0
+AGENT_SEED = 42
+AGENT_THINKING_DISABLED = True
 
 # (criterion name, weight). Official selection rubric: five criteria, each
 # scored 0-5, equally weighted into a 0-25 total.
@@ -164,11 +167,17 @@ class DeepSeekClient:
         model: str | None = None,
         timeout: float = 120,
         max_retries: int = 2,
+        seed: int | None = None,
+        temperature: float | None = None,
     ) -> None:
         self.api_key = api_key or _secret("DEEPSEEK_API_KEY")
         self.model = model or AGENT_MODEL
         self.timeout = timeout
         self.max_retries = max_retries
+        self.seed = AGENT_SEED if seed is None else seed
+        self.temperature = (
+            AGENT_TEMPERATURE if temperature is None else temperature
+        )
         if not self.api_key:
             raise AgentError(
                 "DEEPSEEK_API_KEY is not set. Add it to Streamlit secrets "
@@ -188,10 +197,15 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         max_tokens: int = 6000,
+        seed: int | None = None,
     ) -> dict[str, Any]:
         """Return ``{"content": ..., "tool_calls": [...]}`` for one turn."""
+        resolved_seed = self.seed if seed is None else seed
+        resolved_temperature = (
+            self.temperature if temperature is None else temperature
+        )
         last_error: Exception | None = None
         for attempt in range(self.max_retries + 1):
             try:
@@ -199,8 +213,9 @@ class DeepSeekClient:
                     messages,
                     tools=tools,
                     json_mode=json_mode,
-                    temperature=temperature,
+                    temperature=resolved_temperature,
                     max_tokens=max_tokens,
+                    seed=resolved_seed,
                 )
             except Exception as exc:  # retry transient/rate-limit/model errors
                 last_error = exc
@@ -224,6 +239,7 @@ class DeepSeekClient:
         json_mode: bool,
         temperature: float,
         max_tokens: int,
+        seed: int | None,
     ) -> dict[str, Any]:
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -231,6 +247,13 @@ class DeepSeekClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if seed is not None:
+            kwargs["seed"] = seed
+        if AGENT_THINKING_DISABLED:
+            # deepseek-v4-* defaults to thinking mode, where temperature and
+            # seed are accepted but have no effect; disable it for reproducible
+            # greedy sampling.
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -254,8 +277,9 @@ class DeepSeekClient:
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]] | None = None,
         json_mode: bool = False,
-        temperature: float = 0.2,
+        temperature: float | None = None,
         max_tokens: int = 6000,
+        seed: int | None = None,
         on_token: Callable[[str], None] | None = None,
     ) -> str:
         """Stream content deltas, calling ``on_token`` and returning the text.
@@ -263,14 +287,23 @@ class DeepSeekClient:
         If the stream fails before any token is produced, falls back once to
         the non-streaming ``complete`` so callers still get a result.
         """
+        resolved_seed = self.seed if seed is None else seed
+        resolved_temperature = (
+            self.temperature if temperature is None else temperature
+        )
         accumulated: list[str] = []
         kwargs: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "temperature": temperature,
+            "temperature": resolved_temperature,
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if resolved_seed is not None:
+            kwargs["seed"] = resolved_seed
+        if AGENT_THINKING_DISABLED:
+            # See _complete_once: thinking mode ignores sampling controls.
+            kwargs["extra_body"] = {"thinking": {"type": "disabled"}}
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -294,8 +327,9 @@ class DeepSeekClient:
                 messages,
                 tools=tools,
                 json_mode=json_mode,
-                temperature=temperature,
+                temperature=resolved_temperature,
                 max_tokens=max_tokens,
+                seed=resolved_seed,
             )
             return response["content"]
         return "".join(accumulated)

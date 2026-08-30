@@ -28,7 +28,6 @@ PAGE_LABELS = {
 }
 AGENT_PAGE = "Idea Validator"
 HYBRID_PAGE = "Selection Advisor"
-SUMMARY_PAGE = "Dashboard Summary"
 
 # Applications columns the dashboard needs (the Dash app's REQUIRED_COLUMNS
 # minus the attendance-specific columns).
@@ -209,7 +208,7 @@ def dashboard_pages(attendance_loaded: bool) -> list[str]:
 
 def ai_pages() -> list[str]:
     """AI-assisted section pages."""
-    return [AGENT_PAGE, SUMMARY_PAGE, HYBRID_PAGE]
+    return [AGENT_PAGE, HYBRID_PAGE]
 
 
 def _agent_dimension_rows(score: dict) -> pd.DataFrame:
@@ -257,22 +256,12 @@ def _render_agent_report(report: dict) -> None:
         st.dataframe(dimension_rows, use_container_width=True, hide_index=True)
 
     risks = score.get("risks") or []
-    recommendations = score.get("recommendations") or []
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("### Risks")
-        if risks:
-            for risk in risks:
-                st.markdown(f"- {risk}")
-        else:
-            st.caption("No risks identified.")
-    with col2:
-        st.markdown("### Recommendations")
-        if recommendations:
-            for item in recommendations:
-                st.markdown(f"- {item}")
-        else:
-            st.caption("No recommendations available.")
+    st.markdown("### Risks")
+    if risks:
+        for risk in risks:
+            st.markdown(f"- {risk}")
+    else:
+        st.caption("No risks identified.")
 
     sources = score.get("sources") or []
     if sources:
@@ -356,156 +345,19 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
         _render_agent_report(report)
 
 
-def _render_dashboard_summary(summary: dict) -> None:
-    """Render an appealing, card-based dashboard summary."""
-    kpis = summary.get("kpis") or {}
-    card_specs = [
-        ("Applications", kpis.get("applications"), "👥"),
-        ("Accepted", kpis.get("accepted"), "✅"),
-        ("Acceptance rate", kpis.get("acceptance_rate_pct"), "📈"),
-    ]
-    present = [(label, value, icon) for label, value, icon in card_specs if value is not None]
-    if present:
-        columns = st.columns(len(present))
-        for column, (label, value, icon) in zip(columns, present):
-            suffix = "%" if "share" in label or "rate" in label else ""
-            with column:
-                st.markdown(
-                    f"""
-                    <div class="kpi-card">
-                      <div class="kpi-icon">{icon}</div>
-                      <div class="kpi-value">{value}{suffix}</div>
-                      <div class="kpi-label">{label}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-    narrative = (summary.get("summary") or "").strip()
-    if narrative:
-        st.markdown(
-            f'<div class="summary-card">{narrative}</div>',
-            unsafe_allow_html=True,
-        )
-
-    insights = summary.get("insights") or []
-    if insights:
-        st.markdown("### Highlights")
-        cards = "".join(
-            f'<div class="insight-card"><b>✦ Insight</b>'
-            f'<span class="insight-text">{text}</span></div>'
-            for text in insights
-        )
-        st.markdown(
-            f'<div class="insight-grid">{cards}</div>',
-            unsafe_allow_html=True,
-        )
-
-    snapshot = summary.get("snapshot") or {}
-    top_categories = snapshot.get("top_categories") or {}
-    if top_categories:
-        st.markdown("### Top categories")
-        category_titles = {
-            "Sector": "Sector",
-            "applicant_type": "Applicant Type",
-            "outcome_clean": "Outcome",
-            "cohort": "Language Cohort",
-            "cohort_id": "Cohort ID",
-            "Business Stage": "Business Stage",
-        }
-        category_columns = st.columns(min(3, len(top_categories)))
-        category_items = list(top_categories.items())
-        per_column = max(1, len(category_items) // len(category_columns) + 1)
-        for index, (column_name, counts) in enumerate(category_items):
-            with category_columns[index % len(category_columns)]:
-                title = category_titles.get(column_name, column_name)
-                st.markdown(f"**{title}**")
-                st.dataframe(
-                    pd.DataFrame(
-                        [{"Category": key, "Count": value} for key, value in counts.items()]
-                    ),
-                    use_container_width=True,
-                    hide_index=True,
-                    height=180,
-                )
-
-    yearly = snapshot.get("yearly") or []
-    if yearly:
-        st.markdown("### Acceptance by year")
-        st.dataframe(
-            pd.DataFrame(yearly),
-            use_container_width=True,
-            hide_index=True,
-        )
-
-def _render_dashboard_summary_page(
-    applications: pd.DataFrame,
-    attendance,
-    years=None,
-    cohorts=None,
-    outcomes=None,
-    sectors=None,
-    types=None,
-) -> None:
-    """Dedicated AI page: an appealing summary of the uploaded dashboards."""
-    st.markdown(
-        f'<div class="page-title">{SUMMARY_PAGE}</div>', unsafe_allow_html=True
-    )
-    st.markdown(
-        '<div class="page-subtitle">An AI-written overview of your uploaded '
-        "applications and attendance data</div>",
-        unsafe_allow_html=True,
-    )
-    agent_ok, agent_message = idea_agent.agent_ready()
-    if not agent_ok:
-        st.warning(agent_message)
-    else:
-        st.caption(agent_message)
-
-    filtered = _apply_filters(
-        applications, years, cohorts, outcomes, sectors, types
-    )
-    if len(filtered) == 0:
-        st.info("No applicants match the current filters.")
-        return
-    st.caption(
-        f"Loaded {len(applications)} applicants, filtered to "
-        f"{len(filtered)} by the sidebar filters."
-    )
-    active_filter_key = _selection_filter_key(
-        years, cohorts, outcomes, sectors, types
-    )
-
-    if st.button(
-        "Generate dashboard summary",
-        key="dash-summary-run",
-        type="primary",
-        use_container_width=True,
-    ):
-        with st.spinner("Analyzing your dashboards..."):
-            try:
-                agent = idea_agent.IdeaValidationAgent(filtered, attendance)
-                insights = agent.summarize_dashboards()
-                st.session_state["dash_summary"] = insights.to_dict()
-                st.session_state["dash_filter_key"] = active_filter_key
-            except Exception as exc:
-                st.error(f"Dashboard summary failed: {exc}")
-
-    summary = st.session_state.get("dash_summary")
-    if summary:
-        if st.session_state.get("dash_filter_key") != active_filter_key:
-            st.caption(
-                "Filters changed since the last summary - press Generate again."
-            )
-        _render_dashboard_summary(summary)
-
-
 def _render_candidate_body(row: pd.Series, result: dict) -> None:
     """Render the structured agent result for one candidate."""
     score = result.get("score") or {}
     if result.get("error"):
         st.error(result["error"])
         return
+    total = score.get("total_score")
+    verdict = score.get("verdict") or "Unknown"
+    st.markdown(
+        f"**Total score:** {total}/25 ({verdict})"
+        if total is not None
+        else "**Total score:** N/A"
+    )
     if score.get("bahrain_impact"):
         st.markdown(f"**Bahrain impact:** {score['bahrain_impact']}")
     dimensions = score.get("dimensions") or {}
@@ -523,10 +375,6 @@ def _render_candidate_body(row: pd.Series, result: dict) -> None:
         st.markdown("**Risks**")
         for risk in score["risks"]:
             st.markdown(f"- {risk}")
-    if score.get("recommendations"):
-        st.markdown("**Recommendations**")
-        for item in score["recommendations"]:
-            st.markdown(f"- {item}")
     sources = score.get("sources") or []
     if sources:
         st.markdown("**Sources**")
@@ -555,6 +403,32 @@ def _render_agent_result_expanders(results: dict, ranked: pd.DataFrame) -> None:
         result = results.get(identity)
         if result:
             _render_one_candidate_block(row, result)
+
+
+def _candidate_review_rows(
+    ranked: pd.DataFrame, results: dict, count: int
+) -> list[dict]:
+    """Build the combined-shortlist rows after streaming agent review."""
+    rows = []
+    for _position, row in ranked.head(count).iterrows():
+        identity = str(row["identity"])
+        result = results.get(identity) or {}
+        score = result.get("score") or {}
+        total = score.get("total_score")
+        rows.append(
+            {
+                "Model rank": row.get("model_rank"),
+                "Project": row.get("project_name"),
+                "Model prob.": round(float(row["accept_probability"]), 3),
+                "Selection score": (
+                    f"{total}/25" if total is not None else "N/A"
+                ),
+                "Verdict": score.get("verdict"),
+                "Sources": len(score.get("sources") or []),
+                "Status": "Error" if result.get("error") else "Done",
+            }
+        )
+    return rows
 
 
 def _render_hybrid_page(
@@ -674,15 +548,12 @@ def _render_hybrid_page(
 
     predicted = int(ranked["predicted_accepted"].sum())
     threshold = float(ranked["prediction_threshold"].iloc[0])
-    kpi_columns = st.columns(3)
+    kpi_columns = st.columns(2)
     kpi_columns[0].metric("Applicants scored", len(ranked))
     kpi_columns[1].metric(
         "Predicted Accepted",
         predicted,
         help=f"At saved threshold {threshold:.3f}",
-    )
-    kpi_columns[2].metric(
-        "Top probability", f"{ranked['accept_probability'].iloc[0]:.1%}"
     )
 
     if predicted == 0:
@@ -777,22 +648,7 @@ def _render_hybrid_page(
 
     results = st.session_state.get("brinc_agent_results") or {}
     if results:
-        review_rows = []
-        for _position, row in ranked.head(count).iterrows():
-            identity = str(row["identity"])
-            result = results.get(identity) or {}
-            score = result.get("score") or {}
-            review_rows.append(
-                {
-                    "Model rank": row.get("model_rank"),
-                    "Project": row.get("project_name"),
-                    "Model prob.": round(float(row["accept_probability"]), 3),
-                    "Innovation": score.get("total_score"),
-                    "Verdict": score.get("verdict"),
-                    "Sources": len(score.get("sources") or []),
-                    "Status": "Error" if result.get("error") else "Done",
-                }
-            )
+        review_rows = _candidate_review_rows(ranked, results, count)
         st.markdown("### Combined shortlist after agent review")
         st.dataframe(
             pd.DataFrame(review_rows),
@@ -1314,11 +1170,6 @@ def main() -> None:
 
     if page_name == AGENT_PAGE:
         _render_agent_page(applications, attendance)
-        return
-    if page_name == SUMMARY_PAGE:
-        _render_dashboard_summary_page(
-            applications, attendance, years, cohorts, outcomes, sectors, types
-        )
         return
     if page_name == HYBRID_PAGE:
         _render_hybrid_page(years, cohorts, outcomes, sectors, types)
