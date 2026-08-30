@@ -176,6 +176,35 @@ def test_accepted_applications_over_years_uses_unique_years_and_no_y_grid():
     assert getattr(fig, "_dashboard_height", None) == 360
 
 
+def test_total_applications_over_years_matches_grouped_counts():
+    apps, _ = _load_pair()
+    rendered = streamlit_app.dash_app.update_page(
+        "page1", None, None, None, None, None, None, df_input=apps
+    )
+    rows = streamlit_app._render_rows(rendered)
+    assert rows is not None
+    cards = [
+        card
+        for row in rows
+        for card in streamlit_app._extract_cards(row)
+    ]
+    fig = next(
+        fig
+        for title, fig, *_ in cards
+        if title == "Total Applications Over Years"
+    )
+    expected_years = sorted(apps["year"].unique())
+    assert fig.layout.xaxis.type == "category"
+    assert list(fig.data[0].x) == expected_years
+    assert list(fig.data[0].y) == [
+        int(len(apps[apps["year"] == year]))
+        for year in expected_years
+    ]
+    assert fig.layout.yaxis.showgrid is False
+    assert fig.layout.yaxis.visible is False
+    assert getattr(fig, "_dashboard_height", None) == 360
+
+
 def test_applications_by_year_and_cohort_shows_totals():
     apps, _ = _load_pair()
     rendered = streamlit_app.dash_app.update_page(
@@ -293,6 +322,7 @@ def main():
         test_selection_filter_key_changes_with_selections,
         test_attendance_cohort_chart_uses_cohort_id_and_year_is_ascending,
         test_accepted_applications_over_years_uses_unique_years_and_no_y_grid,
+        test_total_applications_over_years_matches_grouped_counts,
         test_applications_by_year_and_cohort_shows_totals,
         test_cards_expose_missing_note,
         test_education_chart_is_vertical_with_cleaned_labels,

@@ -649,6 +649,43 @@ def _dist_fig(
     return _add_missing_note(fig, note, bottom=note_bottom)
 
 
+def _applications_over_years_fig(
+    dff: pd.DataFrame,
+    outcome: str | None = None,
+) -> go.Figure:
+    """Build the line chart of application counts by year."""
+    data = dff if outcome is None else dff[dff["outcome_clean"] == outcome]
+    counts = data.groupby("year").size().reset_index(name="Total")
+    fig = go.Figure(
+        go.Scatter(
+            x=counts["year"],
+            y=counts["Total"],
+            mode="lines+markers+text",
+            text=counts["Total"],
+            textposition="top center",
+            line=dict(color=C_ORANGE, width=3),
+            marker=dict(size=9, color=C_ORANGE),
+        )
+    )
+    years = sorted(counts["year"].unique())
+    fig.update_layout(
+        margin=dict(l=10, r=30, t=35, b=10),
+        xaxis=dict(
+            title="",
+            showgrid=False,
+            type="category",
+            categoryarray=years,
+            tickangle=0,
+            tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
+        ),
+        yaxis=dict(title="", showgrid=False, visible=False, zeroline=False),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family=CHART_FONT, size=11, color=C_TEXT),
+    )
+    return fig
+
+
 def _order_legend_colors(fig):
     """Show orange legend entries before red ones in multi-color legends."""
     color_order = {
@@ -1081,6 +1118,8 @@ def update_page(
             )
         )
 
+        fig_total_years = _applications_over_years_fig(dff)
+
         cnt_type, missing_type = _split_missing(dff["applicant_type"].value_counts())
         cnt_type = cnt_type.sort_values(ascending=False)
         note_type = _missing_note(missing_type, as_percent, total)
@@ -1107,7 +1146,8 @@ def update_page(
             "Overview",
             kpis,
             _grid_row(
-                _card("Applications by Year & Cohort", fig_y),
+                _card("Applications by Year & Cohort", fig_y, height=360),
+                _card("Total Applications Over Years", fig_total_years, height=360),
             ),
             _grid_row(
                 _card("Applicant Type Breakdown", fig_type),
@@ -1367,39 +1407,7 @@ def update_page(
         )
         fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
 
-        acc_by_year = (
-            dff[dff["outcome_clean"] == "Accepted"]
-            .groupby("year")
-            .size()
-            .reset_index(name="Accepted")
-        )
-        fig_acc = go.Figure(
-            go.Scatter(
-                x=acc_by_year["year"],
-                y=acc_by_year["Accepted"],
-                mode="lines+markers+text",
-                text=acc_by_year["Accepted"],
-                textposition="top center",
-                line=dict(color=C_ORANGE, width=3),
-                marker=dict(size=9, color=C_ORANGE),
-            )
-        )
-        acc_years = sorted(acc_by_year["year"].unique())
-        fig_acc.update_layout(
-            margin=dict(l=10, r=30, t=35, b=10),
-            xaxis=dict(
-                title="",
-                showgrid=False,
-                type="category",
-                categoryarray=acc_years,
-                tickangle=0,
-                tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
-            ),
-            yaxis=dict(title="", showgrid=False, visible=False, zeroline=False),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family=CHART_FONT, size=11, color=C_TEXT),
-        )
+        fig_acc = _applications_over_years_fig(dff, outcome="Accepted")
 
         return _page_shell(
             "Sectors & Applicant Type",

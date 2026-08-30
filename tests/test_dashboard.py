@@ -535,6 +535,37 @@ def test_overview_and_sector_pages_use_uniform_grid():
         assert all(card_style.get("flex") == "1" for card_style in cards)
 
 
+def test_overview_total_applications_over_years_matches_grouped_counts():
+    df = _combined_fixture()
+    rendered = dashboard.update_page(
+        "page1",
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        df_input=df,
+    )
+    first_row = rendered[2].children[0]
+    assert [card.children[0].children for card in first_row.children] == [
+        "Applications by Year & Cohort",
+        "Total Applications Over Years",
+    ]
+
+    fig = dict(_card_figures(rendered))["Total Applications Over Years"]
+    expected_years = sorted(df["year"].unique())
+    assert fig.layout.xaxis.type == "category"
+    assert list(fig.data[0].x) == expected_years
+    assert list(fig.data[0].y) == [
+        int(len(df[df["year"] == year]))
+        for year in expected_years
+    ]
+    assert fig.layout.yaxis.showgrid is False
+    assert fig.layout.yaxis.visible is False
+    assert getattr(fig, "_dashboard_height", None) == 360
+
+
 def test_upload_derives_applicant_type_from_individual_or_team():
     df = _combined_fixture().drop(columns=["applicant_type"])
     (
@@ -574,6 +605,7 @@ def main():
         test_cohort_page_removes_top_sectors_and_expands_applicant_type,
         test_cohort_language_charts_stack_counts_and_percent,
         test_overview_and_sector_pages_use_uniform_grid,
+        test_overview_total_applications_over_years_matches_grouped_counts,
     ]
     for test in tests:
         test()
