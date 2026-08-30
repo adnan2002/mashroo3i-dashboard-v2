@@ -153,7 +153,7 @@ def test_attendance_cohort_chart_uses_cohort_id_and_year_is_ascending():
 def test_accepted_applications_over_years_uses_unique_years_and_no_y_grid():
     apps, _ = _load_pair()
     rendered = streamlit_app.dash_app.update_page(
-        "page3", None, None, None, None, None, None, df_input=apps
+        "page4", None, None, None, None, None, None, df_input=apps
     )
     rows = streamlit_app._render_rows(rendered)
     assert rows is not None
@@ -205,7 +205,7 @@ def test_total_applications_over_years_matches_grouped_counts():
     assert getattr(fig, "_dashboard_height", None) == 360
 
 
-def test_applications_by_year_and_cohort_shows_totals():
+def test_applications_by_year_and_cohort_has_no_total_overlay():
     apps, _ = _load_pair()
     rendered = streamlit_app.dash_app.update_page(
         "page1", None, None, None, None, None, None, df_input=apps
@@ -221,20 +221,11 @@ def test_applications_by_year_and_cohort_shows_totals():
     assert fig.layout.barmode == "group"
     assert not fig.layout.annotations
     assert fig.layout.title.text is None
-    expected_totals = [
-        f"{year}: {len(apps[apps['year'] == year])}"
-        for year in sorted(apps["year"].unique())
-    ]
-    totals_trace = next(
-        trace
+    assert not any(
+        getattr(trace, "mode", None) == "text"
+        and trace.showlegend is False
         for trace in fig.data
-        if getattr(trace, "mode", None) == "text" and trace.showlegend is False
     )
-    assert list(totals_trace.text) == expected_totals
-    assert len(set(totals_trace.y)) == 1
-    assert [int(value) for value in totals_trace.x] == [
-        int(year) for year in sorted(apps["year"].unique())
-    ]
 
 
 def test_cards_expose_missing_note():
@@ -268,9 +259,9 @@ def test_education_chart_is_vertical_with_cleaned_labels():
     streamlit_app._auto_vertical_axis_labels(figure)
     assert figure.layout.xaxis.tickangle != 90
     assert figure.layout.annotations
-    assert figure.layout.annotations[0].y == 0.0
+    assert figure.layout.annotations[0].y == -0.09
     assert figure.layout.annotations[0].yanchor == "top"
-    assert figure.layout.margin.b >= 40
+    assert figure.layout.margin.b >= 56
 
 
 def test_vertical_chart_missing_note_sits_below():
@@ -285,9 +276,9 @@ def test_vertical_chart_missing_note_sits_below():
     figure = next(fig for title, fig, *_ in cards if title == "Age Group")
     annotations = figure.layout.annotations
     assert annotations and annotations[0].yref == "paper"
-    assert annotations[0].y == 0.0
+    assert annotations[0].y == -0.09
     assert annotations[0].yanchor == "top"
-    assert figure.layout.margin.b >= 40
+    assert figure.layout.margin.b >= 56
 
 
 def test_major_chart_horizontal_original_sort_note_at_top():
@@ -304,9 +295,9 @@ def test_major_chart_horizontal_original_sort_note_at_top():
     values = [int(value) for value in figure.data[0].x]
     assert values == sorted(values)
     assert figure.layout.annotations
-    assert figure.layout.annotations[0].y == 0.0
+    assert figure.layout.annotations[0].y == -0.09
     assert figure.layout.annotations[0].yanchor == "top"
-    assert figure.layout.margin.b >= 40
+    assert figure.layout.margin.b >= 56
 
 
 def main():
@@ -323,7 +314,7 @@ def main():
         test_attendance_cohort_chart_uses_cohort_id_and_year_is_ascending,
         test_accepted_applications_over_years_uses_unique_years_and_no_y_grid,
         test_total_applications_over_years_matches_grouped_counts,
-        test_applications_by_year_and_cohort_shows_totals,
+        test_applications_by_year_and_cohort_has_no_total_overlay,
         test_cards_expose_missing_note,
         test_education_chart_is_vertical_with_cleaned_labels,
         test_vertical_chart_missing_note_sits_below,

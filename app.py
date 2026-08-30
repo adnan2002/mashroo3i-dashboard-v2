@@ -17,6 +17,7 @@ import argparse
 import base64
 import io
 import os
+import re
 
 import pandas as pd
 import plotly.express as px
@@ -222,6 +223,22 @@ def _age_order(index):
     known = [age for age in AGE_ORDER if age in index]
     unknown = sorted([age for age in index if age not in AGE_ORDER])
     return known + unknown
+
+
+def _cohort_size_year(value) -> str | None:
+    """Return the year prefix of a cohort id like '2024-1'."""
+    match = re.match(r"^(\d{4})-\d+$", str(value).strip())
+    return match.group(1) if match else None
+
+
+def _cohort_size_label(value) -> str:
+    """Human label for a cohort id: '2024-1' -> '2024-1 (EN)'."""
+    text = str(value).strip()
+    match = re.match(r"^(\d{4})-(\d+)$", text)
+    if not match:
+        return text
+    language = {"1": "EN", "2": "AR"}.get(match.group(2))
+    return f"{text} ({language})" if language else text
 
 
 def build_layout():
@@ -594,17 +611,17 @@ def _add_missing_note(fig, note, bottom=True):
     """Add the missing-category note below the plot area."""
     if not note:
         return fig
-    # Always place the note at the bottom; the bottom margin reserve keeps it
-    # clear of the plotted content.
+    # Always place the note at the bottom, in a dedicated band below the
+    # x-axis tick labels; the bottom margin reserve keeps it clear of labels.
     fig.update_layout(
-        margin=dict(b=max(40, fig.layout.margin.b or 0)),
+        margin=dict(b=max(56, fig.layout.margin.b or 0)),
     )
     fig.add_annotation(
         text=note,
         xref="paper",
         yref="paper",
         x=1,
-        y=0,
+        y=-0.09,
         xanchor="right",
         yanchor="top",
         showarrow=False,
@@ -705,7 +722,6 @@ def _multi_h_bar_fig(
     text_col,
     color_map,
     category_orders,
-    legend_title,
     radius=14,
     barmode="stack",
     textposition="inside",
@@ -734,14 +750,13 @@ def _multi_h_bar_fig(
     _order_legend_colors(fig)
     fig.update_layout(
         margin=dict(l=10, r=60, t=40, b=10),
-        legend_title_text=legend_title,
         legend=dict(
             orientation="h",
             y=1.2,
             x=0.5,
             xanchor="center",
             font=dict(family=CHART_FONT, size=10),
-            title=dict(side="top center"),
+            title=dict(text="", side="top center"),
         ),
         xaxis=dict(title="", visible=False, tickangle=0),
         yaxis=dict(
@@ -1071,14 +1086,13 @@ def update_page(
         max_total = int(year_totals["Total"].max())
         fig_y.update_layout(
             margin=dict(l=10, r=40, t=40, b=10),
-            legend_title_text="Cohort",
             legend=dict(
                 orientation="h",
                 y=1.2,
                 x=0.5,
                 xanchor="center",
                 font=dict(family=CHART_FONT, size=10),
-                title=dict(side="top center"),
+                title=dict(text="", side="top center"),
             ),
             xaxis=dict(
                 title="",
@@ -1088,27 +1102,10 @@ def update_page(
                 tickangle=0,
                 tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
             ),
-            yaxis=dict(title="", visible=False, range=[0, max_total * 1.22]),
+            yaxis=dict(title="", visible=False, range=[0, max_total * 1.15]),
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
             font=dict(family=CHART_FONT, size=11, color=C_TEXT),
-        )
-        fig_y.add_trace(
-            go.Scatter(
-                x=[int(year) for year in year_totals["year"]],
-                y=[max_total * 1.10 for _ in year_totals["year"]],
-                mode="text",
-                text=[
-                    f"{int(year)}: {int(total)}"
-                    for year, total in zip(year_totals["year"], year_totals["Total"])
-                ],
-                textfont=dict(
-                    family=CHART_FONT, size=13, color=C_TEXT, weight="bold"
-                ),
-                textposition="middle center",
-                showlegend=False,
-                hoverinfo="skip",
-            )
         )
 
         fig_total_years = _applications_over_years_fig(dff)
@@ -1161,6 +1158,9 @@ def update_page(
             as_percent=as_percent,
             note=note_stage,
         )
+        # Business Stage labels stay horizontal; the card fits without rotating.
+        fig_stage._no_auto_vertical_labels = True
+        fig_stage.update_layout(margin=dict(t=44))
 
         cnt_age, missing_age = _split_missing(dff["Age Group"].value_counts())
         cnt_age = cnt_age.reindex(_age_order(dff["Age Group"].dropna().unique())).dropna()
@@ -1264,14 +1264,13 @@ def update_page(
         _order_legend_colors(fig_type_out)
         fig_type_out.update_layout(
             margin=dict(l=10, r=30, t=40, b=10),
-            legend_title_text="Outcome",
             legend=dict(
                 orientation="h",
                 y=1.2,
                 x=0.5,
                 xanchor="center",
                 font=dict(family=CHART_FONT, size=10),
-                title=dict(side="top center"),
+                title=dict(text="", side="top center"),
             ),
             xaxis=dict(title="", visible=False, tickangle=0),
             yaxis=dict(
@@ -1315,14 +1314,13 @@ def update_page(
         _order_legend_colors(fig_y_type)
         fig_y_type.update_layout(
             margin=dict(l=10, r=50, t=40, b=10),
-            legend_title_text="Applicant Type",
             legend=dict(
                 orientation="h",
                 y=1.2,
                 x=0.5,
                 xanchor="center",
                 font=dict(family=CHART_FONT, size=10),
-                title=dict(side="top center"),
+                title=dict(text="", side="top center"),
             ),
             xaxis=dict(
                 title="",
@@ -1378,14 +1376,13 @@ def update_page(
         _order_legend_colors(fig_sec_out)
         fig_sec_out.update_layout(
             margin=dict(l=10, r=30, t=40, b=10),
-            legend_title_text="Outcome",
             legend=dict(
                 orientation="h",
                 y=1.2,
                 x=0.5,
                 xanchor="center",
                 font=dict(family=CHART_FONT, size=10),
-                title=dict(side="top center"),
+                title=dict(text="", side="top center"),
             ),
             xaxis=dict(title="", visible=False, tickangle=0),
             yaxis=dict(
@@ -1400,8 +1397,6 @@ def update_page(
         )
         fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
 
-        fig_acc = _applications_over_years_fig(dff, outcome="Accepted")
-
         return _page_shell(
             "Sectors & Applicant Type",
             kpis,
@@ -1412,9 +1407,6 @@ def update_page(
             _grid_row(
                 _card("Top Sectors", fig_sec, height=360),
                 _card("Applicant Type Over Years", fig_y_type, height=360),
-            ),
-            _grid_row(
-                _card("Accepted Applications Over Years", fig_acc, height=360),
             ),
         )
 
@@ -1453,7 +1445,6 @@ def update_page(
                 "cohort": cohort_order_visual,
                 "outcome_clean": ["Accepted", "Rejected", "Not Specified"],
             },
-            legend_title="Outcome",
         )
 
         cohort_colors = {
@@ -1483,7 +1474,6 @@ def update_page(
             text_col="Text",
             color_map=cohort_colors,
             category_orders={"cohort": cohort_order_visual},
-            legend_title="Cohort",
             barmode="stack",
             textposition="inside",
         )
@@ -1496,15 +1486,91 @@ def update_page(
         cnt_cohort, missing_cohort = _split_missing(
             dff[cohort_size_col].value_counts()
         )
-        cnt_cohort = cnt_cohort.sort_index()
+        cohort_values = sorted(dff[cohort_size_col].dropna().unique())
+        # Cohort ids look like 2024-1; keep only the 2023-2025 range. Fall
+        # back to all values (e.g. language cohorts) when ids aren't used.
+        if all(_cohort_size_year(value) is not None for value in cohort_values):
+            cohort_order = [
+                value
+                for value in cohort_values
+                if _cohort_size_year(value) in {"2023", "2024", "2025"}
+            ]
+        else:
+            cohort_order = cohort_values
+        cohort_labels = [_cohort_size_label(value) for value in cohort_order]
         note_cohort = _missing_note(missing_cohort, as_percent, total)
-        fig_cohort = _dist_fig(
-            cnt_cohort.index,
-            cnt_cohort.values,
-            as_percent=as_percent,
-            note=note_cohort,
+        df_cohort_outcome = (
+            dff.loc[dff[cohort_size_col].isin(cohort_order)]
+            .groupby([cohort_size_col, "outcome_clean"], observed=True)
+            .size()
+            .reset_index(name="Total")
         )
-        fig_cohort.update_xaxes(type="category")
+        if as_percent:
+            cohort_outcome_total = df_cohort_outcome.groupby(
+                cohort_size_col
+            )["Total"].transform("sum")
+            df_cohort_outcome["Total"] = (
+                df_cohort_outcome["Total"] / cohort_outcome_total * 100
+            ).round(1)
+            df_cohort_outcome["Text"] = (
+                df_cohort_outcome["Total"].astype(str) + "%"
+            )
+        else:
+            df_cohort_outcome["Text"] = df_cohort_outcome["Total"].astype(str)
+
+        fig_cohort = px.bar(
+            df_cohort_outcome,
+            y=cohort_size_col,
+            x="Total",
+            color="outcome_clean",
+            orientation="h",
+            barmode="stack",
+            color_discrete_map={
+                "Accepted": C_ORANGE_LIGHT,
+                "Rejected": C_ORANGE_DARK,
+                "Not Specified": C_GRAY,
+            },
+            text="Text",
+            category_orders={
+                cohort_size_col: cohort_order,
+                "outcome_clean": ["Accepted", "Rejected", "Not Specified"],
+            },
+        )
+        fig_cohort.update_traces(
+            marker=dict(cornerradius=14), textposition="inside"
+        )
+        fig_cohort.update_yaxes(
+            type="category",
+            categoryorder="array",
+            categoryarray=list(cohort_order),
+            tickmode="array",
+            tickvals=list(cohort_order),
+            ticktext=cohort_labels,
+            automargin=True,
+        )
+        _order_legend_colors(fig_cohort)
+        fig_cohort.update_layout(
+            margin=dict(l=10, r=30, t=40, b=10),
+            legend=dict(
+                orientation="h",
+                y=1.2,
+                x=0.5,
+                xanchor="center",
+                font=dict(family=CHART_FONT, size=10),
+                title=dict(text="", side="top center"),
+            ),
+            xaxis=dict(title="", visible=False, tickangle=0),
+            yaxis=dict(
+                title="",
+                showgrid=False,
+                tickangle=0,
+                tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
+            ),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family=CHART_FONT, size=11, color=C_TEXT),
+        )
+        fig_cohort = _add_missing_note(fig_cohort, note_cohort, bottom=True)
 
         df_type_cohort = dff.groupby(["cohort", "applicant_type"]).size().reset_index(name="Total")
         fig_type_cohort = px.bar(
@@ -1514,14 +1580,17 @@ def update_page(
             color="applicant_type",
             barmode="group",
             text="Total",
-            color_discrete_map={"Individual": C_ORANGE_DARK, "Team": C_ORANGE_LIGHT},
+            # Warm but distinct from the Accepted/Rejected orange pair.
+            color_discrete_map={
+                "Individual": C_ORANGE_SOFT,
+                "Team": C_YELLOW,
+            },
             category_orders={"cohort": ["Arabic", "English"]},
         )
         fig_type_cohort.update_traces(marker=dict(cornerradius=10), textposition="outside", cliponaxis=False)
         _order_legend_colors(fig_type_cohort)
         fig_type_cohort.update_layout(
             margin=dict(l=10, r=50, t=45, b=10),
-            legend_title_text="Applicant Type",
             bargap=0.4,
             bargroupgap=0.25,
             legend=dict(
@@ -1530,7 +1599,7 @@ def update_page(
                 x=0.5,
                 xanchor="center",
                 font=dict(family=CHART_FONT, size=10),
-                title=dict(side="top center"),
+                title=dict(text="", side="top center"),
             ),
             xaxis=dict(
                 title="",
@@ -1544,6 +1613,8 @@ def update_page(
             font=dict(family=CHART_FONT, size=11, color=C_TEXT),
         )
 
+        fig_acc = _applications_over_years_fig(dff, outcome="Accepted")
+
         return _page_shell(
             "Cohort Comparison",
             kpis,
@@ -1552,8 +1623,11 @@ def update_page(
                 _card("Cohort Size by Language Cohort", fig_cohort_size),
             ),
             _grid_row(
-                _card("Cohort Size", fig_cohort),
+                _card("Accepted vs Rejected by Cohort", fig_cohort),
                 _card("Applicant Type by Language Cohort", fig_type_cohort),
+            ),
+            _grid_row(
+                _card("Accepted Applications Over Years", fig_acc, height=360),
             ),
         )
 

@@ -262,7 +262,7 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
     assert "Not Specified" not in sectors
     missing = int((df["Sector"] == "Not Specified").sum())
     assert fig.layout.annotations[0].text == f"{missing} Not Specified"
-    assert fig.layout.annotations[0].y == 0
+    assert fig.layout.annotations[0].y == -0.09
 
 
 def test_sector_vs_outcome_stacks_counts_and_percent():
@@ -279,16 +279,8 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
         "Top Sectors",
         "Applicant Type Over Years",
     ]
-    assert [card.children[0].children for card in rows[2].children] == [
-        "Accepted Applications Over Years",
-    ]
 
     figures = dict(_card_figures(count_rendered))
-    assert getattr(
-        figures["Accepted Applications Over Years"],
-        "_dashboard_height",
-        None,
-    ) == 360
     fig = figures["Sector vs Outcome"]
     sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
     cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())
@@ -300,7 +292,7 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
     )
     assert sectors == expected_sectors
     assert len(sectors) == 5
-    assert fig.layout.annotations[0].y == 0
+    assert fig.layout.annotations[0].y == -0.09
     for sector in sectors:
         per_trace = [dict(zip(trace.y, trace.x)) for trace in fig.data]
         segments = [
@@ -339,16 +331,16 @@ def test_notes_sit_outside_plot_area():
     vertical = dashboard._dist_fig(
         counts.index, counts.values, note="2 Not Specified"
     )
-    assert vertical.layout.annotations[0].y == 0.0
+    assert vertical.layout.annotations[0].y == -0.09
     assert vertical.layout.annotations[0].yanchor == "top"
-    assert vertical.layout.margin.b >= 40
+    assert vertical.layout.margin.b >= 56
 
     horizontal = dashboard._dist_fig(
         counts.index, counts.values, orientation="h", note="2 Not Specified"
     )
-    assert horizontal.layout.annotations[0].y == 0.0
+    assert horizontal.layout.annotations[0].y == -0.09
     assert horizontal.layout.annotations[0].yanchor == "top"
-    assert horizontal.layout.margin.b >= 40
+    assert horizontal.layout.margin.b >= 56
 
 
 def test_attendance_bar_fig_shows_rate_with_note():
@@ -425,14 +417,17 @@ def test_cohort_page_removes_top_sectors_and_expands_applicant_type():
         "page4", None, None, None, None, None, None, df_input=df
     )
     rows = rendered[2].children
-    assert len(rows) == 2
+    assert len(rows) == 3
     first_row_titles = [card.children[0].children for card in rows[0].children]
     second_row_titles = [card.children[0].children for card in rows[1].children]
     assert first_row_titles == [
         "Language Cohort vs Outcome",
         "Cohort Size by Language Cohort",
     ]
-    assert second_row_titles == ["Cohort Size", "Applicant Type by Language Cohort"]
+    assert second_row_titles == [
+        "Accepted vs Rejected by Cohort",
+        "Applicant Type by Language Cohort",
+    ]
     titles = first_row_titles + second_row_titles
     assert "Top Sectors by Cohort" not in titles
     assert "Acceptance Rate by Language Cohort" not in titles
@@ -440,8 +435,23 @@ def test_cohort_page_removes_top_sectors_and_expands_applicant_type():
     expected_ids = sorted(
         str(value) for value in df["cohort_id"].dropna().unique()
     )
-    assert list(cohort_size_fig.data[0].x) == expected_ids
-    assert cohort_size_fig.layout.xaxis.type == "category"
+    assert cohort_size_fig.layout.barmode == "stack"
+    assert cohort_size_fig.data[0].orientation == "h"
+    assert [
+        str(value) for value in cohort_size_fig.layout.yaxis.categoryarray
+    ] == expected_ids
+    assert [
+        str(value) for value in cohort_size_fig.layout.yaxis.ticktext
+    ] == [
+        dashboard._cohort_size_label(value) for value in expected_ids
+    ]
+    assert {trace.name for trace in cohort_size_fig.data} >= {
+        "Accepted",
+        "Rejected",
+    }
+    assert [
+        card.children[0].children for card in rows[2].children
+    ] == ["Accepted Applications Over Years"]
 
 
 def test_cohort_language_charts_stack_counts_and_percent():

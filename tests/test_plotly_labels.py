@@ -86,6 +86,28 @@ def test_opt_out_flag_keeps_labels_horizontal():
     assert figure.layout.xaxis.tickangle != 90
 
 
+def test_cohort_opt_out_keeps_labels_horizontal():
+    figure = go.Figure(
+        go.Bar(
+            x=["2023-1", "2024-1", "2024-2", "2025-1", "2025-2"],
+            y=[1] * 5,
+        )
+    )
+    figure.update_xaxes(type="category", tickangle=0, automargin=True)
+    figure.update_layout(
+        xaxis=dict(
+            type="category",
+            tickangle=0,
+            tickmode="array",
+            tickvals=["2023-1", "2024-1", "2024-2", "2025-1", "2025-2"],
+            ticktext=["2023-1", "2024-1", "2024-2", "2025-1", "2025-2"],
+        )
+    )
+    figure._no_auto_vertical_labels = True
+    streamlit_app._auto_vertical_axis_labels(figure)
+    assert figure.layout.xaxis.tickangle != 90
+
+
 def main():
     tests = [
         test_crowded_sector_labels_become_vertical,
@@ -97,6 +119,7 @@ def main():
         test_single_long_label_becomes_vertical,
         test_explicit_category_axis_rotates_when_long,
         test_opt_out_flag_keeps_labels_horizontal,
+        test_cohort_opt_out_keeps_labels_horizontal,
     ]
     for test in tests:
         test()
