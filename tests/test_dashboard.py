@@ -128,7 +128,17 @@ def test_switch_page():
 
 
 def test_no_page_word_in_buttons():
-    buttons = dashboard.app.layout.children[0].children[4:9]
+    buttons = [
+        child
+        for child in dashboard.app.layout.children[0].children
+        if getattr(child, "id", None) in {
+            "btn-p1",
+            "btn-p2",
+            "btn-p3",
+            "btn-p4",
+            "btn-p5",
+        }
+    ]
     assert len(buttons) == 5
     assert all("Page" not in child.children for child in buttons)
 

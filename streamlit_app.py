@@ -363,7 +363,6 @@ def _render_dashboard_summary(summary: dict) -> None:
         ("Applications", kpis.get("applications"), "👥"),
         ("Accepted", kpis.get("accepted"), "✅"),
         ("Acceptance rate", kpis.get("acceptance_rate_pct"), "📈"),
-        ("Bahraini share", kpis.get("bahraini_share_pct"), "🇧🇭"),
     ]
     present = [(label, value, icon) for label, value, icon in card_specs if value is not None]
     if present:
@@ -904,24 +903,21 @@ def _selection_filter_key(years, cohorts, outcomes, sectors, types) -> tuple:
     )
 
 
-def _kpcs(df: pd.DataFrame) -> tuple[int, int, float, float]:
+def _kpcs(df: pd.DataFrame) -> tuple[int, int, float]:
     total = len(df)
     accepted = len(df[df["outcome_clean"] == "Accepted"]) if "outcome_clean" in df else 0
     rate = round(accepted / total * 100, 1) if total else 0
-    bahraini = len(df[df["nationality"].astype(str).str.contains("bahrain", case=False, na=False)])
-    bah_rate = round(bahraini / total * 100, 1) if total else 0
-    return total, accepted, rate, bah_rate
+    return total, accepted, rate
 
 
 def _render_kpis(df: pd.DataFrame) -> None:
-    total, accepted, rate, bah_rate = _kpcs(df)
+    total, accepted, rate = _kpcs(df)
     values = [
         ("👥", "Total Applicants", total),
         ("✅", "Accepted", accepted),
         ("📈", "Acceptance Rate", f"{rate}%"),
-        ("🇧🇭", "Bahraini Nationals", f"{bah_rate}%"),
     ]
-    columns = st.columns(4)
+    columns = st.columns(3)
     for column, (icon, label, value) in zip(columns, values):
         with column:
             st.markdown(

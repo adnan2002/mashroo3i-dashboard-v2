@@ -990,18 +990,6 @@ def update_page(
     total = len(dff)
     accepted = len(dff[dff["outcome_clean"] == "Accepted"])
     rate = round(accepted / total * 100, 1) if total else 0
-    bah_rate = (
-        round(
-            len(
-                dff[dff["nationality"].astype(str).str.contains("bahrain", case=False, na=False)]
-            )
-            / total
-            * 100,
-            1,
-        )
-        if total
-        else 0
-    )
 
     kpis = html.Div(
         className="kpi-grid",
@@ -1031,19 +1019,6 @@ def update_page(
                     html.Div("📈", className="kpi-icon"),
                     html.Div(f"{rate}%", className="kpi-value"),
                     html.Div("Acceptance Rate", className="kpi-label"),
-                ],
-            ),
-            html.Div(
-                className="kpi-card",
-                style={"padding": "14px 16px", "display": "flex", "flexDirection": "column", "gap": "7px"},
-                children=[
-                    html.Img(
-                        src="https://flagcdn.com/w80/bh.png",
-                        className="kpi-icon",
-                        style={"width": "32px", "height": "21px", "borderRadius": "4px", "objectFit": "cover"},
-                    ),
-                    html.Div(f"{bah_rate}%", className="kpi-value"),
-                    html.Div("Bahraini Nationals", className="kpi-label"),
                 ],
             ),
         ],
