@@ -841,6 +841,7 @@ def _team_size_fig(df, as_percent=False):
 
 def _card(title, fig, flex="1", height=320):
     """Modern card with a consistent chart height, so nothing gets clipped."""
+    setattr(fig, "_dashboard_height", height)
     return html.Div(
         className="chart-card",
         style={
@@ -1105,37 +1106,6 @@ def update_page(
             )
         )
 
-        acc_by_year = (
-            dff[dff["outcome_clean"] == "Accepted"].groupby("year").size().reset_index(name="Accepted")
-        )
-        fig_acc = go.Figure(
-            go.Scatter(
-                x=acc_by_year["year"],
-                y=acc_by_year["Accepted"],
-                mode="lines+markers+text",
-                text=acc_by_year["Accepted"],
-                textposition="top center",
-                line=dict(color=C_ORANGE, width=3),
-                marker=dict(size=9, color=C_ORANGE),
-            )
-        )
-        acc_years = sorted(acc_by_year["year"].unique())
-        fig_acc.update_layout(
-            margin=dict(l=10, r=30, t=35, b=10),
-            xaxis=dict(
-                title="",
-                showgrid=False,
-                type="category",
-                categoryarray=acc_years,
-                tickangle=0,
-                tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
-            ),
-            yaxis=dict(title="", showgrid=False, visible=False, zeroline=False),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(family=CHART_FONT, size=11, color=C_TEXT),
-        )
-
         cnt_type, missing_type = _split_missing(dff["applicant_type"].value_counts())
         cnt_type = cnt_type.sort_values(ascending=False)
         note_type = _missing_note(missing_type, as_percent, total)
@@ -1163,7 +1133,6 @@ def update_page(
             kpis,
             _grid_row(
                 _card("Applications by Year & Cohort", fig_y),
-                _card("Accepted Applications Over Years", fig_acc),
             ),
             _grid_row(
                 _card("Applicant Type Breakdown", fig_type),
@@ -1423,6 +1392,40 @@ def update_page(
         )
         fig_sec_out = _add_missing_note(fig_sec_out, note_sec, bottom=True)
 
+        acc_by_year = (
+            dff[dff["outcome_clean"] == "Accepted"]
+            .groupby("year")
+            .size()
+            .reset_index(name="Accepted")
+        )
+        fig_acc = go.Figure(
+            go.Scatter(
+                x=acc_by_year["year"],
+                y=acc_by_year["Accepted"],
+                mode="lines+markers+text",
+                text=acc_by_year["Accepted"],
+                textposition="top center",
+                line=dict(color=C_ORANGE, width=3),
+                marker=dict(size=9, color=C_ORANGE),
+            )
+        )
+        acc_years = sorted(acc_by_year["year"].unique())
+        fig_acc.update_layout(
+            margin=dict(l=10, r=30, t=35, b=10),
+            xaxis=dict(
+                title="",
+                showgrid=False,
+                type="category",
+                categoryarray=acc_years,
+                tickangle=0,
+                tickfont=dict(family=CHART_FONT, size=11, color=C_TEXT),
+            ),
+            yaxis=dict(title="", showgrid=False, visible=False, zeroline=False),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(family=CHART_FONT, size=11, color=C_TEXT),
+        )
+
         return _page_shell(
             "Sectors & Applicant Type",
             kpis,
@@ -1433,6 +1436,9 @@ def update_page(
             _grid_row(
                 _card("Top Sectors", fig_sec, height=360),
                 _card("Applicant Type Over Years", fig_y_type, height=360),
+            ),
+            _grid_row(
+                _card("Accepted Applications Over Years", fig_acc, height=720),
             ),
         )
 

@@ -998,7 +998,7 @@ def _auto_vertical_axis_labels(figure) -> None:
 def render_plotly(figure, key: str = None) -> None:
     """Render a Plotly figure with the same compact look as the Dash app."""
     _auto_vertical_axis_labels(figure)
-    figure.update_layout(height=320)
+    figure.update_layout(height=getattr(figure, "_dashboard_height", 320))
     st.plotly_chart(
         figure,
         width="stretch",

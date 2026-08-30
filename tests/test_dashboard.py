@@ -267,8 +267,16 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
         "Top Sectors",
         "Applicant Type Over Years",
     ]
+    assert [card.children[0].children for card in rows[2].children] == [
+        "Accepted Applications Over Years",
+    ]
 
     figures = dict(_card_figures(count_rendered))
+    assert getattr(
+        figures["Accepted Applications Over Years"],
+        "_dashboard_height",
+        None,
+    ) == 720
     fig = figures["Sector vs Outcome"]
     sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
     cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())

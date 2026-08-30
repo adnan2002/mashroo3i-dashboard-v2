@@ -153,11 +153,15 @@ def test_attendance_cohort_chart_uses_cohort_id_and_year_is_ascending():
 def test_accepted_applications_over_years_uses_unique_years_and_no_y_grid():
     apps, _ = _load_pair()
     rendered = streamlit_app.dash_app.update_page(
-        "page1", None, None, None, None, None, None, df_input=apps
+        "page3", None, None, None, None, None, None, df_input=apps
     )
     rows = streamlit_app._render_rows(rendered)
     assert rows is not None
-    cards = streamlit_app._extract_cards(rows[0])
+    cards = [
+        card
+        for row in rows
+        for card in streamlit_app._extract_cards(row)
+    ]
     fig = next(
         fig
         for title, fig, *_ in cards
@@ -169,6 +173,7 @@ def test_accepted_applications_over_years_uses_unique_years_and_no_y_grid():
     yaxis = fig.layout.yaxis
     assert yaxis.showgrid is False
     assert yaxis.visible is False
+    assert getattr(fig, "_dashboard_height", None) == 720
 
 
 def test_applications_by_year_and_cohort_shows_totals():
