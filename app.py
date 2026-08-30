@@ -541,12 +541,12 @@ def _bar_fig(x, y, orientation="v", text=None, color=C_ORANGE, radius=14):
 
 _MISSING_LABELS = {
     "not specified": "Not Specified",
-    "blanks": "Blanks",
+    "blanks": "Not Specified",
 }
 
 
 def _split_missing(counts: pd.Series) -> tuple[pd.Series, dict[str, int]]:
-    """Separate 'Not Specified'/'Blanks' counts from a distribution series."""
+    """Separate 'Not Specified' counts from a distribution series."""
     visible = []
     missing: dict[str, int] = {}
     for label, value in counts.items():
@@ -572,7 +572,7 @@ def _missing_note(
     full_total: int | None = None,
     label: str | None = None,
 ) -> str | None:
-    """Build the side-note text for excluded blanks/not-specified counts."""
+    """Build the side-note text for excluded not-specified counts."""
     if not missing:
         return None
     count = sum(missing.values())
@@ -581,40 +581,36 @@ def _missing_note(
     if label:
         label = label
     elif len(missing) > 1:
-        label = "blank or not specified"
+        label = "Not Specified"
     else:
-        label = next(iter(missing)).lower()
+        key = next(iter(missing))
+        label = _MISSING_LABELS.get(str(key).strip().lower(), str(key))
     if as_percent and full_total:
         return f"{count / full_total * 100:.1f}% {label}"
     return f"{count} {label}"
 
 
-def _add_missing_note(fig, note, bottom=False):
-    """Add the missing-category note outside the plot area."""
+def _add_missing_note(fig, note, bottom=True):
+    """Add the missing-category note below the plot area."""
     if not note:
         return fig
-    if bottom:
-        fig.update_layout(
-            margin=dict(b=max(40, fig.layout.margin.b or 0)),
-        )
-        y, yanchor, yshift = 0, "top", -6
-    else:
-        fig.update_layout(
-            margin=dict(t=max(40, fig.layout.margin.t or 0)),
-        )
-        y, yanchor, yshift = 1, "bottom", 6
+    # Always place the note at the bottom; the bottom margin reserve keeps it
+    # clear of the plotted content.
+    fig.update_layout(
+        margin=dict(b=max(40, fig.layout.margin.b or 0)),
+    )
     fig.add_annotation(
         text=note,
         xref="paper",
         yref="paper",
         x=1,
-        y=y,
+        y=0,
         xanchor="right",
-        yanchor=yanchor,
+        yanchor="top",
         showarrow=False,
         align="right",
         xshift=-6,
-        yshift=yshift,
+        yshift=-6,
         font=dict(family=CHART_FONT, size=10, color="#9B8B82"),
     )
     return fig
@@ -628,7 +624,7 @@ def _dist_fig(
     total=None,
     precision=1,
     note=None,
-    note_bottom=None,
+    note_bottom=True,
 ):
     """Single-variable distribution bar chart showing counts or % of total."""
     values = pd.Series(values, index=labels, dtype=float)
@@ -644,8 +640,6 @@ def _dist_fig(
         fig = _bar_fig(shown.values, labels, orientation="h", text=text)
     else:
         fig = _bar_fig(labels, shown.values, orientation="v", text=text)
-    if note_bottom is None:
-        note_bottom = orientation == "h"
     return _add_missing_note(fig, note, bottom=note_bottom)
 
 
@@ -803,24 +797,24 @@ def _attendance_bar_fig(
             text=labels,
         )
         fig.update_xaxes(type="category")
-    return _add_missing_note(fig, note, bottom=horizontal)
+    return _add_missing_note(fig, note)
 
 
 def _team_size_bucket(value):
     """Map a raw team-member count to a display category (1 is excluded)."""
     if pd.isna(value):
-        return "Blanks"
+        return "Not Specified"
     text = str(value).strip()
     if text in {"", "-", "nan", "None", "null"}:
-        return "Blanks"
+        return "Not Specified"
     if text == "5+":
         return "5+"
     try:
         number = float(text)
     except (TypeError, ValueError):
-        return "Blanks"
+        return "Not Specified"
     if pd.isna(number) or number <= 0:
-        return "Blanks"
+        return "Not Specified"
     if number <= 1:
         return None
     if number > 5:
@@ -829,7 +823,7 @@ def _team_size_bucket(value):
 
 
 def _team_size_fig(df, as_percent=False):
-    """Build a team-size distribution with 2-5, 5+, and a Blanks side note."""
+    """Build a team-size distribution with 2-5, 5+, and a side note."""
     if "team_member_count" in df.columns:
         size_col = "team_member_count"
     elif "team_size_from_attendance" in df.columns:
@@ -839,7 +833,7 @@ def _team_size_fig(df, as_percent=False):
     else:
         return _bar_fig([], [])
 
-    buckets = {"2": 0, "3": 0, "4": 0, "5": 0, "5+": 0, "Blanks": 0}
+    buckets = {"2": 0, "3": 0, "4": 0, "5": 0, "5+": 0, "Not Specified": 0}
     for value in df[size_col]:
         bucket = _team_size_bucket(value)
         if bucket is not None:
@@ -847,7 +841,7 @@ def _team_size_fig(df, as_percent=False):
 
     labels = ["2", "3", "4", "5", "5+"]
     counts = pd.Series(buckets).reindex(labels).astype(int)
-    blanks = int(buckets["Blanks"])
+    not_specified = int(buckets["Not Specified"])
     if as_percent:
         total_visible = float(counts.sum())
         values = (
@@ -868,10 +862,9 @@ def _team_size_fig(df, as_percent=False):
         categoryarray=["2", "3", "4", "5", "5+"],
     )
     note = _missing_note(
-        {"Blanks": blanks},
+        {"Not Specified": not_specified},
         as_percent=as_percent,
-        full_total=counts.sum() + blanks,
-        label="blank or not specified",
+        full_total=counts.sum() + not_specified,
     )
     return _add_missing_note(fig, note)
 

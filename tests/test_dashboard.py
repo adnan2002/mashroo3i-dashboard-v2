@@ -172,7 +172,7 @@ def test_member_attendance_is_not_inflated_by_team_presence():
     assert list(fig.data[0].text) == ["50.0%"]
 
 
-def test_team_size_chart_uses_5_plus_and_blanks():
+def test_team_size_chart_uses_5_plus_and_not_specified():
     df = pd.DataFrame(
         {
             "team_member_count": [1.0, 2.0, 3.0, 5.0, 6.0, "5+", None],
@@ -192,7 +192,7 @@ def test_team_size_chart_uses_5_plus_and_blanks():
         "5+",
     ]
     assert fig.layout.xaxis.autorange != "reversed"
-    assert fig.layout.annotations[0].text == "1 blank or not specified"
+    assert fig.layout.annotations[0].text == "1 Not Specified"
 
 
 def test_distribution_charts_support_percent_mode():
@@ -217,7 +217,7 @@ def test_distribution_charts_support_percent_mode():
     assert abs(sum(values) - 100.0) < 0.2
     missing = int((df["Business Stage"] == "Not Specified").sum())
     assert fig.layout.annotations[0].text == (
-        f"{missing / len(df) * 100:.1f}% not specified"
+        f"{missing / len(df) * 100:.1f}% Not Specified"
     )
 
     default_rendered = dashboard.update_page(
@@ -228,7 +228,9 @@ def test_distribution_charts_support_percent_mode():
     assert "Not Specified" not in list(default_fig.data[0].x)
     assert all(not str(item).endswith("%") for item in default_text)
     assert default_text == [str(int(value)) for value in default_fig.data[0].y]
-    assert default_fig.layout.annotations[0].text == f"{missing} not specified"
+    assert default_fig.layout.annotations[0].text == (
+        f"{missing} Not Specified"
+    )
 
 
 def test_team_size_chart_percent_mode():
@@ -238,7 +240,7 @@ def test_team_size_chart_percent_mode():
     fig = dashboard._team_size_fig(df, as_percent=True)
     assert all(str(item).endswith("%") for item in fig.data[0].text)
     assert abs(sum(fig.data[0].y) - 100.0) < 0.2
-    assert fig.layout.annotations[0].text == "16.7% blank or not specified"
+    assert fig.layout.annotations[0].text == "16.7% Not Specified"
 
 
 def test_top_sectors_excludes_not_specified_and_keeps_top_five():
@@ -259,7 +261,7 @@ def test_top_sectors_excludes_not_specified_and_keeps_top_five():
     assert len(sectors) == 5
     assert "Not Specified" not in sectors
     missing = int((df["Sector"] == "Not Specified").sum())
-    assert fig.layout.annotations[0].text == f"{missing} not specified"
+    assert fig.layout.annotations[0].text == f"{missing} Not Specified"
     assert fig.layout.annotations[0].y == 0
 
 
@@ -335,14 +337,14 @@ def test_dist_fig_switches_between_counts_and_percent():
 def test_notes_sit_outside_plot_area():
     counts = pd.Series([3, 1], index=["A", "B"])
     vertical = dashboard._dist_fig(
-        counts.index, counts.values, note="2 not specified"
+        counts.index, counts.values, note="2 Not Specified"
     )
-    assert vertical.layout.annotations[0].y == 1.0
-    assert vertical.layout.annotations[0].yanchor == "bottom"
-    assert vertical.layout.margin.t >= 40
+    assert vertical.layout.annotations[0].y == 0.0
+    assert vertical.layout.annotations[0].yanchor == "top"
+    assert vertical.layout.margin.b >= 40
 
     horizontal = dashboard._dist_fig(
-        counts.index, counts.values, orientation="h", note="2 not specified"
+        counts.index, counts.values, orientation="h", note="2 Not Specified"
     )
     assert horizontal.layout.annotations[0].y == 0.0
     assert horizontal.layout.annotations[0].yanchor == "top"
@@ -361,11 +363,11 @@ def test_attendance_bar_fig_shows_rate_with_note():
         }
     )
     figure = dashboard._attendance_bar_fig(
-        summary, "year", sort_by="label", note="2 not specified"
+        summary, "year", sort_by="label", note="2 Not Specified"
     )
     assert all(str(text).endswith("%") for text in figure.data[0].text)
     assert list(figure.data[0].y) == [80.0, 75.0]
-    assert figure.layout.annotations[0].text == "2 not specified"
+    assert figure.layout.annotations[0].text == "2 Not Specified"
 
 
 def test_attendance_sector_chart_stays_percent_when_counts_requested():
@@ -593,7 +595,7 @@ def main():
         test_switch_page,
         test_upload_derives_applicant_type_from_individual_or_team,
         test_member_attendance_is_not_inflated_by_team_presence,
-        test_team_size_chart_uses_5_plus_and_blanks,
+        test_team_size_chart_uses_5_plus_and_not_specified,
         test_distribution_charts_support_percent_mode,
         test_team_size_chart_percent_mode,
         test_dist_fig_switches_between_counts_and_percent,
