@@ -276,7 +276,7 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
         figures["Accepted Applications Over Years"],
         "_dashboard_height",
         None,
-    ) == 720
+    ) == 360
     fig = figures["Sector vs Outcome"]
     sectors = [str(value) for value in fig.layout.yaxis.categoryarray]
     cnt_sec, _ = dashboard._split_missing(df["Sector"].value_counts())

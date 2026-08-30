@@ -173,7 +173,7 @@ def test_accepted_applications_over_years_uses_unique_years_and_no_y_grid():
     yaxis = fig.layout.yaxis
     assert yaxis.showgrid is False
     assert yaxis.visible is False
-    assert getattr(fig, "_dashboard_height", None) == 720
+    assert getattr(fig, "_dashboard_height", None) == 360
 
 
 def test_applications_by_year_and_cohort_shows_totals():

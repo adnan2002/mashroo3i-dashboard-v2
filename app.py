@@ -1438,7 +1438,7 @@ def update_page(
                 _card("Applicant Type Over Years", fig_y_type, height=360),
             ),
             _grid_row(
-                _card("Accepted Applications Over Years", fig_acc, height=720),
+                _card("Accepted Applications Over Years", fig_acc, height=360),
             ),
         )
 
