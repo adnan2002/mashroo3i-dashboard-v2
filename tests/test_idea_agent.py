@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -203,6 +204,129 @@ def _apps() -> pd.DataFrame:
     )
 
 
+def _custom_criteria():
+    return [
+        idea_agent.SelectionCriterion(
+            name="Alpha",
+            guidance="custom alpha guidance",
+            weight=0.75,
+        ),
+        idea_agent.SelectionCriterion(
+            name="Beta",
+            guidance="custom beta guidance",
+            weight=0.25,
+        ),
+    ]
+
+
+def test_criteria_file_round_trip():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "criteria.json"
+        idea_agent.save_selection_criteria(_custom_criteria(), path)
+        loaded = idea_agent.load_selection_criteria(path)
+    assert [criterion.name for criterion in loaded] == ["Alpha", "Beta"]
+    assert [criterion.guidance for criterion in loaded] == [
+        "custom alpha guidance",
+        "custom beta guidance",
+    ]
+    assert sum(criterion.weight for criterion in loaded) == 1.0
+
+
+def test_default_criteria_match_file():
+    loaded = idea_agent.load_selection_criteria()
+    assert [criterion.guidance for criterion in loaded] == [
+        "Is there a clear and relevant problem being addressed?",
+        "Is the proposed solution clear and does it effectively address the problem?",
+        "Is the idea innovative, different, or offering a new approach?",
+        "Is there a clear target customer/market and potential for the idea to grow?",
+        "Is the idea realistic and achievable, considering the technology, resources, regulations in Bahrain and capabilities required?",
+    ]
+
+
+def test_criteria_validation_blocks_bad_input():
+    assert not idea_agent.validate_selection_criteria([])[0]
+    assert not idea_agent.validate_selection_criteria(
+        [idea_agent.SelectionCriterion(name="Alpha", weight=1.5)]
+    )[0]
+    assert not idea_agent.validate_selection_criteria(
+        [idea_agent.SelectionCriterion(name="Alpha", weight=float("nan"))]
+    )[0]
+    assert not idea_agent.validate_selection_criteria(
+        [
+            idea_agent.SelectionCriterion(name="Alpha", weight=0.2),
+            idea_agent.SelectionCriterion(name="alpha", weight=0.2),
+        ]
+    )[0]
+
+
+def test_criteria_weights_are_normalised():
+    normalised = idea_agent.normalise_weights(
+        [
+            idea_agent.SelectionCriterion(
+                name="Alpha", guidance="a", weight=2
+            ),
+            idea_agent.SelectionCriterion(
+                name="Beta", guidance="b", weight=1
+            ),
+        ]
+    )
+    assert [criterion.weight for criterion in normalised] == [
+        round(2 / 3, 6),
+        round(1 / 3, 6),
+    ]
+    equal = idea_agent.normalise_weights(
+        [
+            idea_agent.SelectionCriterion(name="Alpha", weight=0),
+            idea_agent.SelectionCriterion(name="Beta", weight=0),
+        ]
+    )
+    assert [criterion.weight for criterion in equal] == [0.5, 0.5]
+
+
+def test_custom_criteria_scoring_and_prompt():
+    payload = {
+        "dimensions": {
+            "Alpha": {"score": 4, "rationale": "good"},
+            "Beta": {"score": 2, "rationale": "ok"},
+        },
+        "bahrain_impact": "Local jobs.",
+        "risks": [],
+        "recommendations": [],
+    }
+    score = idea_agent._score_from_payload(payload, [], _custom_criteria())
+    assert set(score.dimensions) == {"Alpha", "Beta"}
+    assert score.total_score == 17.5
+    messages = idea_agent._score_prompt(
+        "Problem: test", "context", _custom_criteria()
+    )
+    system = messages[0]["content"]
+    assert "Alpha (max 5, weight 75%): custom alpha guidance" in system
+    assert "Beta (max 5, weight 25%): custom beta guidance" in system
+    assert '"Alpha"' in system
+    assert '"Beta"' in system
+    assert "impact on Bahrain" in system
+
+
+def test_score_payload_does_not_truncate_agent_output():
+    payload = {
+        "dimensions": {
+            "Problem / Need": {
+                "score": 4,
+                "rationale": "A complete rationale.",
+                "evidence": [f"evidence {index}" for index in range(6)],
+            }
+        },
+        "risks": [f"risk {index}" for index in range(12)],
+        "recommendations": [
+            f"recommendation {index}" for index in range(12)
+        ],
+    }
+    score = idea_agent._score_from_payload(payload, [])
+    assert len(score.dimensions["Problem / Need"].evidence) == 6
+    assert len(score.risks) == 12
+    assert len(score.recommendations) == 12
+
+
 def test_score_payload_math_clamps_and_weighs():
     score = idea_agent._score_from_payload(SCORE_PAYLOAD, [])
     assert set(score.dimensions) == {
@@ -255,6 +379,27 @@ def test_run_agent_stream_emits_status_and_tokens():
     assert "Bahrain" in report.score.bahrain_impact
     assert report.dashboard is None
     assert stream_fake.calls == 1
+
+
+def test_run_agent_stream_does_not_overwrite_criteria_file():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "criteria.json"
+        original_path = idea_agent.SELECTION_CRITERIA_PATH
+        idea_agent.SELECTION_CRITERIA_PATH = path
+        try:
+            agent = idea_agent.IdeaValidationAgent(
+                applications=_apps(),
+                client=StreamFakeLLM(),
+                searcher=StubSearcher(),
+                criteria=_custom_criteria(),
+            )
+            agent.run_stream(
+                "Problem: x\nDescription: y",
+                include_dashboard=False,
+            )
+        finally:
+            idea_agent.SELECTION_CRITERIA_PATH = original_path
+        assert not path.exists()
 
 
 def test_dashboard_analyzer_is_read_only_and_rejects_unknown_columns():
@@ -406,9 +551,16 @@ def test_deepseek_client_stream_forwards_deterministic_sampling():
 
 def main():
     tests = [
+        test_criteria_file_round_trip,
+        test_default_criteria_match_file,
+        test_criteria_validation_blocks_bad_input,
+        test_criteria_weights_are_normalised,
+        test_custom_criteria_scoring_and_prompt,
+        test_score_payload_does_not_truncate_agent_output,
         test_score_payload_math_clamps_and_weighs,
         test_score_idea_splices_search_evidence,
         test_run_agent_stream_emits_status_and_tokens,
+        test_run_agent_stream_does_not_overwrite_criteria_file,
         test_dashboard_analyzer_is_read_only_and_rejects_unknown_columns,
         test_dashboard_summary_falls_back_when_model_is_garbage,
         test_run_loop_accepts_final_report_without_native_tool_calls,

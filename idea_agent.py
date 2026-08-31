@@ -14,10 +14,12 @@ from ``AGENT_MODEL`` and defaults to ``deepseek-v4-flash``.
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
 import pandas as pd
@@ -54,6 +56,12 @@ SCORING_RUBRIC: tuple[tuple[str, float], ...] = (
     ("Market Potential", 0.20),
     ("Feasibility", 0.20),
 )
+SELECTION_CRITERIA_PATH = Path(
+    os.getenv(
+        "BRINC_SELECTION_CRITERIA_PATH",
+        str(Path(__file__).resolve().parent / "selection_criteria.json"),
+    )
+)
 
 MAX_TOOL_ITERATIONS = 6
 MAX_SEARCH_QUERIES = 6
@@ -68,6 +76,200 @@ DEFAULT_DASHBOARD_QUESTION = (
 
 class AgentError(RuntimeError):
     """Raised when the agent cannot complete a requested capability."""
+
+
+@dataclass(frozen=True)
+class SelectionCriterion:
+    """One user-editable selection criterion.
+
+    ``weight`` is a 0-1 fraction (20% is stored as 0.20) and is normalised to
+    sum to 1.0 when used for scoring.
+    """
+
+    name: str
+    guidance: str = ""
+    weight: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+DEFAULT_SELECTION_CRITERIA: list[SelectionCriterion] = [
+    SelectionCriterion(
+        name="Problem / Need",
+        guidance="Is there a clear and relevant problem being addressed?",
+        weight=0.20,
+    ),
+    SelectionCriterion(
+        name="Solution / Idea",
+        guidance=(
+            "Is the proposed solution clear and does it effectively address "
+            "the problem?"
+        ),
+        weight=0.20,
+    ),
+    SelectionCriterion(
+        name="Innovation / Differentiation",
+        guidance="Is the idea innovative, different, or offering a new approach?",
+        weight=0.20,
+    ),
+    SelectionCriterion(
+        name="Market Potential",
+        guidance=(
+            "Is there a clear target customer/market and potential for the "
+            "idea to grow?"
+        ),
+        weight=0.20,
+    ),
+    SelectionCriterion(
+        name="Feasibility",
+        guidance=(
+            "Is the idea realistic and achievable, considering the technology, "
+            "resources, regulations in Bahrain and capabilities required?"
+        ),
+        weight=0.20,
+    ),
+]
+
+
+def _default_criteria_copy() -> list[SelectionCriterion]:
+    return [
+        SelectionCriterion(
+            name=criterion.name,
+            guidance=criterion.guidance,
+            weight=criterion.weight,
+        )
+        for criterion in DEFAULT_SELECTION_CRITERIA
+    ]
+
+
+def normalise_weights(
+    criteria: list[SelectionCriterion],
+) -> list[SelectionCriterion]:
+    """Return criteria with non-negative weights that sum to 1.0.
+
+    Invalid/repair weights are treated as zero; when every weight is zero the
+    criteria fall back to equal weights.
+    """
+    cleaned = [criterion for criterion in criteria if criterion.name.strip()]
+    if not cleaned:
+        return []
+    weights: list[float] = []
+    for criterion in cleaned:
+        try:
+            value = float(criterion.weight)
+        except (TypeError, ValueError):
+            value = 0.0
+        if not math.isfinite(value) or value < 0:
+            value = 0.0
+        weights.append(value)
+    total = sum(weights)
+    if total > 0:
+        weights = [value / total for value in weights]
+    else:
+        weights = [1.0 / len(weights)] * len(weights)
+    return [
+        SelectionCriterion(
+            name=criterion.name.strip(),
+            guidance=criterion.guidance.strip(),
+            weight=round(value, 6),
+        )
+        for criterion, value in zip(cleaned, weights)
+    ]
+
+
+def load_selection_criteria(
+    path: str | Path | None = None,
+) -> list[SelectionCriterion]:
+    """Load criteria from JSON, falling back to the built-in defaults."""
+    criteria_path = Path(path or SELECTION_CRITERIA_PATH)
+    try:
+        raw = json.loads(criteria_path.read_text(encoding="utf-8"))
+    except (OSError, TypeError, ValueError):
+        return _default_criteria_copy()
+    if not isinstance(raw, list):
+        return _default_criteria_copy()
+
+    loaded: list[SelectionCriterion] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        try:
+            weight = float(item.get("weight") or 0.0)
+        except (TypeError, ValueError):
+            weight = 0.0
+        if not math.isfinite(weight) or weight < 0:
+            weight = 0.0
+        loaded.append(
+            SelectionCriterion(
+                name=name,
+                guidance=str(item.get("guidance") or "").strip(),
+                weight=weight,
+            )
+        )
+    if not loaded:
+        return _default_criteria_copy()
+    return normalise_weights(loaded)
+
+
+def save_selection_criteria(
+    criteria: list[SelectionCriterion],
+    path: str | Path | None = None,
+) -> None:
+    """Persist the current in-memory criteria, overwriting the JSON file."""
+    if not criteria:
+        raise ValueError("At least one selection criterion is required.")
+    criteria_path = Path(path or SELECTION_CRITERIA_PATH)
+    data = [
+        criterion.to_dict()
+        for criterion in normalise_weights(criteria)
+    ]
+    criteria_path.parent.mkdir(parents=True, exist_ok=True)
+    criteria_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def validate_selection_criteria(
+    criteria: list[SelectionCriterion],
+) -> tuple[bool, str]:
+    """Validate editable criteria before generation or saving."""
+    if not criteria:
+        return False, "Add at least one selection criterion."
+    seen: set[str] = set()
+    for index, criterion in enumerate(criteria, 1):
+        name = criterion.name.strip()
+        if not name:
+            return False, f"Row {index}: criterion name is required."
+        folded = name.casefold()
+        if folded in seen:
+            return False, f"Row {index}: duplicate criterion '{name}'."
+        seen.add(folded)
+        try:
+            weight = float(criterion.weight)
+        except (TypeError, ValueError):
+            return False, (
+                f"Row {index}: '{name}' needs a weight between 0% and 100%."
+            )
+        if not math.isfinite(weight) or weight < 0 or weight > 1:
+            return False, (
+                f"Row {index}: '{name}' weight must be between 0% and 100%."
+            )
+    return True, ""
+
+
+def criteria_signature(
+    criteria: list[SelectionCriterion],
+) -> tuple[tuple[str, str, float], ...]:
+    """Return a stable signature for detecting in-memory criteria changes."""
+    return tuple(
+        (criterion.name, criterion.guidance, round(criterion.weight, 6))
+        for criterion in normalise_weights(criteria)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +571,7 @@ class TavilySearch:
                 continue
             sources.append(
                 SearchSource(
-                    title=str(item.get("title") or url)[:200],
+                    title=str(item.get("title") or url),
                     url=url,
                     snippet=str(item.get("content") or "")[
                         : MAX_SNIPPET_CHARS
@@ -488,26 +690,40 @@ def _complete_json(
     return last_payload
 
 
-def _normalise_dimension_name(name: str) -> str | None:
+def _normalise_dimension_name(
+    name: str,
+    criteria: list[SelectionCriterion] | None = None,
+) -> str | None:
     normalized = re.sub(r"[^a-z]+", "", name.lower())
-    for canonical, _weight in SCORING_RUBRIC:
-        if normalized == re.sub(r"[^a-z]+", "", canonical.lower()):
-            return canonical
+    active = criteria or load_selection_criteria()
+    for criterion in active:
+        if normalized == re.sub(r"[^a-z]+", "", criterion.name.lower()):
+            return criterion.name
     return None
 
 
 def _score_from_payload(
-    payload: dict[str, Any], sources: list[SearchSource]
+    payload: dict[str, Any],
+    sources: list[SearchSource],
+    criteria: list[SelectionCriterion] | None = None,
 ) -> InnovationScore:
     """Parse/normalise an LLM score payload into a validated InnovationScore."""
+    active = normalise_weights(criteria or load_selection_criteria())
+    if not active:
+        return InnovationScore(
+            dimensions={},
+            total_score=None,
+            verdict="Insufficient Evidence",
+        )
     dimensions: dict[str, ScoreDimension] = {}
     raw_dimensions = payload.get("dimensions") or {}
     if not isinstance(raw_dimensions, dict):
         raw_dimensions = {}
-    for canonical, _weight in SCORING_RUBRIC:
+    for criterion in active:
+        canonical = criterion.name
         raw = None
         for key, value in raw_dimensions.items():
-            if _normalise_dimension_name(str(key)) == canonical:
+            if _normalise_dimension_name(str(key), active) == canonical:
                 raw = value
                 break
         if isinstance(raw, dict):
@@ -522,7 +738,7 @@ def _score_from_payload(
             dimensions[canonical] = ScoreDimension(
                 score=score,
                 rationale=str(raw.get("rationale") or "").strip(),
-                evidence=[str(item) for item in evidence][:5],
+                evidence=[str(item) for item in evidence],
             )
         else:
             dimensions[canonical] = ScoreDimension(
@@ -536,7 +752,10 @@ def _score_from_payload(
             5
             * sum(
                 dimensions[name].score * weight
-                for name, weight in SCORING_RUBRIC
+                for name, weight in (
+                    (criterion.name, criterion.weight)
+                    for criterion in active
+                )
             ),
             1,
         )
@@ -554,11 +773,11 @@ def _score_from_payload(
 
     risks_raw = payload.get("risks") or []
     recommendations_raw = payload.get("recommendations") or []
-    risks = [str(item) for item in risks_raw][:8] if isinstance(
+    risks = [str(item) for item in risks_raw] if isinstance(
         risks_raw, list
     ) else []
     recommendations = (
-        [str(item) for item in recommendations_raw][:8]
+        [str(item) for item in recommendations_raw]
         if isinstance(recommendations_raw, list)
         else []
     )
@@ -583,40 +802,47 @@ def _score_from_payload(
     )
 
 
-def _score_prompt(idea_text: str, context: str) -> list[dict[str, Any]]:
-    dimension_lines = "\n".join([
-        "- Problem / Need (max 5): clear, relevant problem with evidence",
-        "- Solution / Idea (max 5): clear solution that addresses the problem",
-        "- Innovation / Differentiation (max 5): new approach vs existing work",
-        "- Market Potential (max 5): target customers, market size, and "
-        "growth potential - explicitly assess local demand and impact on "
-        "Bahrain (jobs, economy, local value)",
-        "- Feasibility (max 5): realistic and achievable given technology, "
-        "resources, Bahrain regulations, national priorities, and required "
-        "capabilities - explicitly note the idea's impact on Bahrain",
-    ])
-    system = (
-        "You are a startup selection analyst. Score the idea strictly on the "
-        "web research provided against the official selection rubric. Each "
-        "criterion is scored 0-5 and the five criteria are equally weighted "
-        "into a total out of 25. Score only what the evidence supports.\n"
-        "Interpret 'Feasibility' as realistic and achievable given the "
-        "technology, resources, Bahrain regulations, and the capabilities "
-        "required. Return ONLY valid JSON with this shape:\n"
-        '{"dimensions": {'
-        '"Problem / Need": {"score": 0-5, "rationale": "...", '
-        '"evidence": ["source title"]}, '
-        '"Solution / Idea": {...}, '
-        '"Innovation / Differentiation": {...}, '
-        '"Market Potential": {...}, "Feasibility": {...}}, '
+def _score_prompt(
+    idea_text: str,
+    context: str,
+    criteria: list[SelectionCriterion] | None = None,
+) -> list[dict[str, Any]]:
+    active = normalise_weights(criteria or load_selection_criteria())
+    if not active:
+        active = _default_criteria_copy()
+    dimension_lines = "\n".join(
+        f"- {criterion.name} (max 5, weight {criterion.weight:.0%}): "
+        f"{criterion.guidance or 'Use the rubric guidance for this criterion.'}"
+        for criterion in active
+    )
+    dimension_examples = ",\n".join(
+        f'        "{json.dumps(criterion.name, ensure_ascii=False)[1:-1]}": '
+        '{"score": 0-5, "rationale": "...", "evidence": ["source title"]}'
+        for criterion in active
+    )
+    json_shape = (
+        '{"dimensions": {\n'
+        f"{dimension_examples}\n"
+        '}, '
         '"bahrain_impact": "one short sentence on the impact of the idea on '
         'Bahrain (jobs, economy, policy fit)", '
         '"total_score": number (0-25), "verdict": "Strong|Promising|Weak", '
-        '"risks": ["..."], "recommendations": ["..."]}\n'
+        '"risks": ["..."], "recommendations": ["..."]}'
+    )
+    system = (
+        "You are a startup selection analyst. Score the idea strictly on the "
+        "web research provided against the active selection rubric. Each "
+        "criterion is scored 0-5 and the weighted criteria combine into a "
+        "total out of 25. Score only what the evidence supports.\n"
+        "Return ONLY valid JSON with this shape:\n"
+        f"{json_shape}\n"
         f"Scoring rubric (each criterion 0-5, total /25):\n{dimension_lines}\n"
+        "Interpret 'Feasibility' as realistic and achievable given the "
+        "technology, resources, Bahrain regulations, and the capabilities "
+        "required. Score Market Potential and Feasibility with the idea's "
+        "impact on Bahrain front of mind.\n"
         "Keep each rationale short and evidence-grounded. Verdicts: Strong "
-        ">=19, Promising >=13, Weak <13. Score Market Potential and "
-        "Feasibility with the idea's impact on Bahrain front of mind.\n"
+        ">=19, Promising >=13, Weak <13.\n"
         "Do not invent facts that are not in the research. If evidence is thin, "
         "still return the structure and lower the relevant scores. "
         "No markdown, no commentary."
@@ -911,6 +1137,7 @@ class IdeaValidationAgent:
         client: DeepSeekClient | None = None,
         searcher: TavilySearch | None = None,
         max_tool_iterations: int = MAX_TOOL_ITERATIONS,
+        criteria: list[SelectionCriterion] | None = None,
     ) -> None:
         self.applications = applications
         self.attendance = attendance
@@ -918,6 +1145,9 @@ class IdeaValidationAgent:
         self.searcher = searcher or TavilySearch()
         self.analyzer = DashboardAnalyzer(applications, attendance)
         self.max_tool_iterations = max_tool_iterations
+        self.criteria = normalise_weights(
+            criteria or load_selection_criteria()
+        )
         self.last_tool_calls: list[dict[str, Any]] = []
 
     # -- capabilities ------------------------------------------------------
@@ -925,9 +1155,11 @@ class IdeaValidationAgent:
     def score_idea(self, idea_text: str) -> InnovationScore:
         sources, _queries = research_idea(idea_text, self.searcher)
         client = self.client or DeepSeekClient()
-        messages = _score_prompt(idea_text, _research_context(sources))
+        messages = _score_prompt(
+            idea_text, _research_context(sources), self.criteria
+        )
         payload = _complete_json(client, messages)
-        score = _score_from_payload(payload, sources)
+        score = _score_from_payload(payload, sources, self.criteria)
         if not score.risks:
             score.risks = [
                 "The model did not identify specific risks; treat this score "
@@ -1049,7 +1281,9 @@ class IdeaValidationAgent:
                         }
                     )
                     if "score" in result:
-                        score = _score_from_dict(result["score"])
+                        score = _score_from_dict(
+                            result["score"], self.criteria
+                        )
                     if "dashboard" in result:
                         dashboard = _dashboard_from_dict(result["dashboard"])
                 continue
@@ -1067,7 +1301,7 @@ class IdeaValidationAgent:
                     }
                 )
                 if "score" in result:
-                    score = _score_from_dict(result["score"])
+                    score = _score_from_dict(result["score"], self.criteria)
                 if "dashboard" in result:
                     dashboard = _dashboard_from_dict(result["dashboard"])
                 continue
@@ -1082,7 +1316,7 @@ class IdeaValidationAgent:
                 # a complete tool result with an incomplete blob.
                 if "innovation_validation" in payload and score is None:
                     candidate = _score_from_dict(
-                        payload["innovation_validation"]
+                        payload["innovation_validation"], self.criteria
                     )
                     if candidate.dimensions:
                         score = candidate
@@ -1155,7 +1389,9 @@ class IdeaValidationAgent:
         source_list = list(sources.values())
 
         status("Generating your /25 selection score...")
-        score_messages = _score_prompt(idea_text, _research_context(source_list))
+        score_messages = _score_prompt(
+            idea_text, _research_context(source_list), self.criteria
+        )
         score_text = client.stream_complete(
             score_messages, json_mode=True, on_token=on_token
         )
@@ -1166,7 +1402,7 @@ class IdeaValidationAgent:
                 payload = _complete_json(client, score_messages)
             except AgentError:
                 payload = {}
-        score = _score_from_payload(payload, source_list)
+        score = _score_from_payload(payload, source_list, self.criteria)
         if not score.risks:
             score.risks = [
                 "The model did not identify specific risks; treat this score "
@@ -1221,14 +1457,23 @@ class IdeaValidationAgent:
         )
 
 
-def _score_from_dict(payload: dict[str, Any]) -> InnovationScore:
+def _score_from_dict(
+    payload: dict[str, Any],
+    criteria: list[SelectionCriterion] | None = None,
+) -> InnovationScore:
+    active = normalise_weights(criteria or load_selection_criteria())
     dimensions: dict[str, ScoreDimension] = {}
     raw_dimensions = payload.get("dimensions") or {}
     if isinstance(raw_dimensions, dict):
-        for name, raw in raw_dimensions.items():
+        for criterion in active:
+            raw = None
+            for key, value in raw_dimensions.items():
+                if _normalise_dimension_name(str(key), active) == criterion.name:
+                    raw = value
+                    break
             if not isinstance(raw, dict):
                 continue
-            dimensions[name] = ScoreDimension(
+            dimensions[criterion.name] = ScoreDimension(
                 score=float(raw.get("score", 0) or 0),
                 rationale=str(raw.get("rationale") or ""),
                 evidence=[str(item) for item in raw.get("evidence") or []],
@@ -1243,10 +1488,28 @@ def _score_from_dict(payload: dict[str, Any]) -> InnovationScore:
                     snippet=str(raw.get("snippet") or ""),
                 )
             )
+    total = payload.get("total_score")
+    if total is None and dimensions:
+        total = round(
+            5
+            * sum(
+                dimensions[criterion.name].score * criterion.weight
+                for criterion in active
+            ),
+            1,
+        )
+    verdict = str(payload.get("verdict") or "")
+    if not verdict and total is not None:
+        if total >= 19:
+            verdict = "Strong"
+        elif total >= 13:
+            verdict = "Promising"
+        else:
+            verdict = "Weak"
     return InnovationScore(
         dimensions=dimensions,
-        total_score=float(payload["total_score"]) if payload.get("total_score") is not None else None,
-        verdict=str(payload.get("verdict") or "Unknown"),
+        total_score=float(total) if total is not None else None,
+        verdict=verdict or "Insufficient Evidence",
         bahrain_impact=str(payload.get("bahrain_impact") or ""),
         risks=[str(item) for item in payload.get("risks") or []],
         recommendations=[
@@ -1274,6 +1537,7 @@ def run_agent(
     question: str = DEFAULT_DASHBOARD_QUESTION,
     client: DeepSeekClient | None = None,
     searcher: TavilySearch | None = None,
+    criteria: list[SelectionCriterion] | None = None,
 ) -> AgentReport:
     """Convenience entrypoint used by the Streamlit page and the evaluator."""
     agent = IdeaValidationAgent(
@@ -1281,6 +1545,7 @@ def run_agent(
         attendance=attendance,
         client=client,
         searcher=searcher,
+        criteria=criteria,
     )
     return agent.run(idea_text, question)
 
@@ -1295,6 +1560,7 @@ def run_agent_stream(
     on_token: Callable[[str], None] | None = None,
     client: DeepSeekClient | None = None,
     searcher: TavilySearch | None = None,
+    criteria: list[SelectionCriterion] | None = None,
 ) -> AgentReport:
     """Streaming entrypoint used by the Streamlit pages."""
     agent = IdeaValidationAgent(
@@ -1302,6 +1568,7 @@ def run_agent_stream(
         attendance=attendance,
         client=client,
         searcher=searcher,
+        criteria=criteria,
     )
     return agent.run_stream(
         idea_text,

@@ -17,6 +17,7 @@ import streamlit_app
 FIXTURES = ROOT / "tests" / "fixtures"
 APPLICATIONS_CSV = FIXTURES / "applications.csv"
 ATTENDANCE_CSV = FIXTURES / "attendance.csv"
+RECEIVED_CRITERIA: list = []
 
 
 def _applications():
@@ -27,6 +28,7 @@ def _applications():
 
 def _fake_stream(**kwargs):
     """Stub the streamed agent so no LLM call is made."""
+    RECEIVED_CRITERIA.append(kwargs.get("criteria"))
     on_status = kwargs.get("on_status")
     on_token = kwargs.get("on_token")
     if on_status:
@@ -62,6 +64,7 @@ def _fake_stream(**kwargs):
 
 def test_idea_validator_streams_and_stores_report():
     original = idea_agent.run_agent_stream
+    RECEIVED_CRITERIA.clear()
     idea_agent.run_agent_stream = _fake_stream
     try:
         at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
@@ -76,6 +79,7 @@ def test_idea_validator_streams_and_stores_report():
                 radio.set_value("Idea Validator").run()
                 break
         assert not at.exception
+        assert len(at.session_state["selection_criteria"]) == 5
         at.text_area(key="agent_idea").set_value("A local idea for Bahrain.")
         at.text_area(key="agent_description").set_value("A clear description.")
         at.button(key="agent_run").click().run()
@@ -83,8 +87,48 @@ def test_idea_validator_streams_and_stores_report():
         report = at.session_state["agent_report"]
         assert report["score"]["total_score"] == 15.0
         assert report["score"]["bahrain_impact"] == "Supports local jobs."
+        assert [criterion.name for criterion in RECEIVED_CRITERIA[0]] == [
+            "Problem / Need",
+            "Solution / Idea",
+            "Innovation / Differentiation",
+            "Market Potential",
+            "Feasibility",
+        ]
     finally:
         idea_agent.run_agent_stream = original
+
+
+def test_save_criteria_button_uses_current_criteria():
+    saved: list = []
+    original = idea_agent.save_selection_criteria
+    idea_agent.save_selection_criteria = lambda criteria, path=None: saved.append(
+        criteria
+    )
+    try:
+        at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
+        at.session_state["applications"] = _applications()
+        at.run()
+        for radio in at.sidebar.radio:
+            if "AI" in (radio.options or []):
+                radio.set_value("AI").run()
+                break
+        for radio in at.sidebar.radio:
+            if "Idea Validator" in (radio.options or []):
+                radio.set_value("Idea Validator").run()
+                break
+        assert not at.exception
+        at.button(key="selection-criteria-save").click().run()
+        assert not at.exception
+        assert len(saved) == 1
+        assert [criterion.name for criterion in saved[0]] == [
+            "Problem / Need",
+            "Solution / Idea",
+            "Innovation / Differentiation",
+            "Market Potential",
+            "Feasibility",
+        ]
+    finally:
+        idea_agent.save_selection_criteria = original
 
 
 def test_attendance_page_hides_values_toggle():
@@ -108,6 +152,7 @@ def test_attendance_page_hides_values_toggle():
 
 def main():
     test_idea_validator_streams_and_stores_report()
+    test_save_criteria_button_uses_current_criteria()
     test_attendance_page_hides_values_toggle()
     print("PASS streaming + attendance toggle tests")
 

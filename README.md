@@ -8,6 +8,7 @@ and tested without a notebook kernel.
 
 - `app.py` - the Dash application (layout, callbacks, entrypoint)
 - `streamlit_app.py` - Streamlit deployment entrypoint (reuses the same chart logic)
+- `selection_criteria.json` - editable selection rubric loaded by the AI pages
 - `.streamlit/config.toml` - Streamlit theme/server configuration
 - `model/` - bundled Brinc acceptance model (joblib, threshold, feature engineering)
 - `tests/` - smoke tests plus committed `fixtures/` CSV data used by them
@@ -109,18 +110,30 @@ python evaluate_agent.py --samples 6 --out /tmp/mashroo3i_eval.json
 python evaluate_agent.py --offline   # no live API calls
 ```
 
+### Selection criteria
+
+The current five-criterion /25 rubric is loaded from `selection_criteria.json`
+in the project root. Both **Idea Validator** and **Selection Advisor** show
+the same editable criteria table: name, guidance text, and weight.
+
+- Add/remove rows with the table editor. Weights are normalised to 100% when
+  generating a score, so the total stays /25.
+- Clicking **Validate & Analyze** or **Run agent** uses the in-memory criteria
+  only; the criteria file is not changed.
+- Clicking **Save criteria** overwrites `selection_criteria.json`. The
+  Bahrain-impact scoring instruction and `bahrain_impact` response field stay
+  fixed in the backend prompt.
+
 ### Selection Advisor page in Streamlit
 
 The app has a **Selection Advisor** page that runs the same cascade
 interactively:
 
-1. Upload the full Brinc applicant CSV once in the sidebar. If it has the
-   complete model schema, the Selection Advisor reuses it automatically; use
-   the page's "Applications CSV" uploader only to replace it with a different
-   file (the "Use the real dashboard_ready.csv" shortcut appears only when
-   that local dev file is present). Then **Rank candidates with the Brinc
-   model** -- it loads the bundled `final_model.joblib` from the project
-   `model/` folder and shows the primary shortlist.
+1. Upload the full Brinc applicant CSV once in the dashboard sidebar. The
+   Selection Advisor uses exactly that dashboard-loaded file, with no separate
+   upload control. Then **Rank candidates with the Brinc model** -- it loads
+   the bundled `final_model.joblib` from the project `model/` folder and shows
+   the primary shortlist.
 2. Pick how many of the top candidates to review, then **Run agent on top N** --
    the agent searches the web and scores each one on the /25 rubric, **streaming
    each candidate's progress live** (status + result as it completes), then a
@@ -128,9 +141,9 @@ interactively:
 3. Review the combined table (model rank + /25 selection score/verdict) and
    expand each candidate for evidence, risks, and recommendations.
 
-The sidebar filters (Years, Cohorts, Outcomes, Sectors, Applicant Type) apply
-to whichever dataset the Selection Advisor is using (your upload or the
-dashboard checkbox): the shortlist is re-ranked on the filtered population.
+The sidebar filters (Years, Cohorts, Outcomes, Sectors, Applicant Type) also
+apply to the dashboard-loaded applicant rows: the shortlist is re-ranked on
+the filtered population.
 
 The `model/` folder is self-contained: `final_model.joblib`,
 `final_threshold.json` (current operating point: 0.125), and vendored

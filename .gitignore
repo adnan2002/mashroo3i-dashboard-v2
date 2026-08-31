@@ -11,6 +11,9 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 
+*.json
+!selection_criteria.json
+
 # Editor / OS noise
 .idea/
 .vscode/

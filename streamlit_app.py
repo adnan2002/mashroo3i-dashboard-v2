@@ -7,6 +7,7 @@ Cloud with the same CSV/Excel upload and filters.
 
 from __future__ import annotations
 
+import hashlib
 import io
 
 import pandas as pd
@@ -179,6 +180,11 @@ def _has_model_schema(df: pd.DataFrame) -> bool:
     return all(key in df.columns for key in MODEL_INPUT_KEYS)
 
 
+def _upload_signature(file_bytes: bytes) -> str:
+    """Return a stable content signature for detecting a new dashboard upload."""
+    return hashlib.sha256(file_bytes).hexdigest()
+
+
 @st.cache_data(show_spinner=False)
 def load_attendance(file_bytes: bytes, filename: str) -> pd.DataFrame:
     """Load the attendance sheet/file and keep attendance + join columns."""
@@ -211,10 +217,145 @@ def ai_pages() -> list[str]:
     return [AGENT_PAGE, HYBRID_PAGE]
 
 
-def _agent_dimension_rows(score: dict) -> pd.DataFrame:
+def _criteria_to_frame(
+    criteria: list[idea_agent.SelectionCriterion],
+) -> pd.DataFrame:
+    """Convert selection criteria into the editable table shape."""
+    return pd.DataFrame(
+        [
+            {
+                "Name": criterion.name,
+                "Guidance": criterion.guidance,
+                "Weight (%)": round(criterion.weight * 100, 1),
+            }
+            for criterion in criteria
+        ],
+        columns=["Name", "Guidance", "Weight (%)"],
+    )
+
+
+def _criteria_from_frame(df: pd.DataFrame) -> list[idea_agent.SelectionCriterion]:
+    """Read an edited criteria table, ignoring rows without a name."""
+    criteria: list[idea_agent.SelectionCriterion] = []
+    for _index, row in df.iterrows():
+        raw_name = row.get("Name")
+        name = "" if pd.isna(raw_name) else str(raw_name).strip()
+        if not name:
+            continue
+        raw_guidance = row.get("Guidance")
+        guidance = (
+            "" if pd.isna(raw_guidance) else str(raw_guidance).strip()
+        )
+        raw_weight = row.get("Weight (%)")
+        if pd.isna(raw_weight):
+            weight = float("nan")
+        else:
+            try:
+                weight = float(raw_weight) / 100.0
+            except (TypeError, ValueError):
+                weight = float("nan")
+        criteria.append(
+            idea_agent.SelectionCriterion(
+                name=name,
+                guidance=guidance,
+                weight=weight,
+            )
+        )
+    return criteria
+
+
+def _ensure_selection_criteria() -> list[idea_agent.SelectionCriterion]:
+    """Load the file-backed criteria once into the shared session state."""
+    if "selection_criteria" not in st.session_state:
+        st.session_state["selection_criteria"] = idea_agent.load_selection_criteria()
+    return st.session_state["selection_criteria"]
+
+
+def _invalidate_agent_results_if_criteria_changed(
+    criteria: list[idea_agent.SelectionCriterion],
+) -> None:
+    """Drop prior AI reports/results whenever the in-memory criteria change."""
+    signature = idea_agent.criteria_signature(criteria)
+    if st.session_state.get("selection_criteria_report_signature") != signature:
+        st.session_state["selection_criteria_report_signature"] = signature
+        st.session_state.pop("agent_report", None)
+        st.session_state.pop("brinc_agent_results", None)
+
+
+def _render_selection_criteria_editor() -> tuple[
+    list[idea_agent.SelectionCriterion], bool
+]:
+    """Render the shared, add/remove criteria table used by both AI pages."""
+    current = _ensure_selection_criteria()
+    with st.expander("Selection criteria", expanded=True):
+        edited = st.data_editor(
+            _criteria_to_frame(current),
+            key="selection-criteria-editor",
+            num_rows="dynamic",
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Name": st.column_config.TextColumn(
+                    "Name",
+                    required=True,
+                ),
+                "Guidance": st.column_config.TextColumn(
+                    "Guidance",
+                ),
+                "Weight (%)": st.column_config.NumberColumn(
+                    "Weight (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=1.0,
+                    format="%.0f%%",
+                    required=True,
+                ),
+            },
+        )
+        candidates = _criteria_from_frame(edited)
+        valid, message = idea_agent.validate_selection_criteria(candidates)
+        active: list[idea_agent.SelectionCriterion] | None = None
+        if valid:
+            active = idea_agent.normalise_weights(candidates)
+            st.session_state["selection_criteria"] = active
+            _invalidate_agent_results_if_criteria_changed(active)
+            st.caption(
+                "Weights are normalised to 100%. Generating never overwrites "
+                "the criteria file; Save overwrites it."
+            )
+        else:
+            st.error(message)
+
+        if st.button(
+            "Save criteria",
+            key="selection-criteria-save",
+            use_container_width=True,
+        ):
+            if active is None:
+                st.error("Fix the criteria before saving.")
+            else:
+                try:
+                    idea_agent.save_selection_criteria(active)
+                    st.success("Selection criteria saved.")
+                except Exception as exc:
+                    st.error(f"Could not save selection criteria: {exc}")
+
+    chosen = active if active is not None else current
+    return chosen, valid
+
+
+def _agent_dimension_rows(
+    score: dict,
+    criteria: list[idea_agent.SelectionCriterion] | None = None,
+) -> pd.DataFrame:
     """Turn a score payload into a small, render-friendly DataFrame."""
     rows = []
-    weights = dict(idea_agent.SCORING_RUBRIC)
+    weights = {
+        criterion.name: criterion.weight
+        for criterion in (
+            criteria or idea_agent.DEFAULT_SELECTION_CRITERIA
+        )
+    }
     for name, dimension in (score.get("dimensions") or {}).items():
         rows.append(
             {
@@ -228,7 +369,10 @@ def _agent_dimension_rows(score: dict) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _render_agent_report(report: dict) -> None:
+def _render_agent_report(
+    report: dict,
+    criteria: list[idea_agent.SelectionCriterion] | None = None,
+) -> None:
     """Render the idea-validation score report (no dashboard summary)."""
     score = report.get("score") or {}
     if not score:
@@ -250,7 +394,7 @@ def _render_agent_report(report: dict) -> None:
     if score.get("bahrain_impact"):
         st.markdown(f"**Bahrain impact:** {score['bahrain_impact']}")
 
-    dimension_rows = _agent_dimension_rows(score)
+    dimension_rows = _agent_dimension_rows(score, criteria)
     if len(dimension_rows):
         st.markdown("### Rubric breakdown")
         st.dataframe(dimension_rows, use_container_width=True, hide_index=True)
@@ -285,6 +429,8 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
         unsafe_allow_html=True,
     )
 
+    criteria, criteria_valid = _render_selection_criteria_editor()
+
     ready, message = idea_agent.agent_ready()
     if not ready:
         st.warning(message)
@@ -309,6 +455,7 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
         key="agent_run",
         type="primary",
         use_container_width=True,
+        disabled=not criteria_valid,
     ):
         if not idea.strip() and not description.strip():
             st.warning("Please enter an idea or a problem first.")
@@ -329,6 +476,7 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
                     attendance=attendance,
                     include_dashboard=False,
                     on_status=_status,
+                    criteria=criteria,
                 )
                 st.session_state["agent_report"] = report.to_dict()
                 status_box.markdown("**Evaluation complete**")
@@ -337,15 +485,19 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
                 status_box.markdown("**Evaluation failed**")
 
     report = st.session_state.get("agent_report") or {}
-    if report:
+    if report and criteria_valid:
         errors = report.get("errors") or []
         if errors:
             for error in errors:
                 st.warning(error)
-        _render_agent_report(report)
+        _render_agent_report(report, criteria)
 
 
-def _render_candidate_body(row: pd.Series, result: dict) -> None:
+def _render_candidate_body(
+    row: pd.Series,
+    result: dict,
+    criteria: list[idea_agent.SelectionCriterion] | None = None,
+) -> None:
     """Render the structured agent result for one candidate."""
     score = result.get("score") or {}
     if result.get("error"):
@@ -362,19 +514,36 @@ def _render_candidate_body(row: pd.Series, result: dict) -> None:
         st.markdown(f"**Bahrain impact:** {score['bahrain_impact']}")
     dimensions = score.get("dimensions") or {}
     if dimensions:
+        weights = {
+            criterion.name: criterion.weight
+            for criterion in (
+                criteria or idea_agent.DEFAULT_SELECTION_CRITERIA
+            )
+        }
         st.markdown("**Rubric breakdown**")
         for name, dimension in dimensions.items():
             rationale = str(dimension.get("rationale") or "")
             st.markdown(
-                f"- **{name}**: {dimension.get('score')}/5 "
-                f"- {rationale[:220]}"
+                f"- **{name}** ({weights.get(name, 0):.0%}): "
+                f"{dimension.get('score')}/5 "
+                f"- {rationale}"
             )
+            evidence = dimension.get("evidence") or []
+            if evidence:
+                st.markdown("  - Evidence:")
+                for evidence_item in evidence:
+                    st.markdown(f"    - {evidence_item}")
     if score.get("evidence_note"):
         st.info(score["evidence_note"])
     if score.get("risks"):
         st.markdown("**Risks**")
         for risk in score["risks"]:
             st.markdown(f"- {risk}")
+    recommendations = score.get("recommendations") or []
+    if recommendations:
+        st.markdown("**Recommendations**")
+        for recommendation in recommendations:
+            st.markdown(f"- {recommendation}")
     sources = score.get("sources") or []
     if sources:
         st.markdown("**Sources**")
@@ -384,7 +553,11 @@ def _render_candidate_body(row: pd.Series, result: dict) -> None:
             st.markdown(f"- [{title}]({url})" if url else f"- {title}")
 
 
-def _render_one_candidate_block(row: pd.Series, result: dict) -> None:
+def _render_one_candidate_block(
+    row: pd.Series,
+    result: dict,
+    criteria: list[idea_agent.SelectionCriterion] | None = None,
+) -> None:
     """Render one agent-reviewed candidate (used for streaming and cache)."""
     score = result.get("score") or {}
     label = (
@@ -393,16 +566,20 @@ def _render_one_candidate_block(row: pd.Series, result: dict) -> None:
         f"({score.get('verdict')})"
     )
     with st.expander(label):
-        _render_candidate_body(row, result)
+        _render_candidate_body(row, result, criteria)
 
 
-def _render_agent_result_expanders(results: dict, ranked: pd.DataFrame) -> None:
+def _render_agent_result_expanders(
+    results: dict,
+    ranked: pd.DataFrame,
+    criteria: list[idea_agent.SelectionCriterion] | None = None,
+) -> None:
     """Show one expander per agent-reviewed candidate from the cache."""
     for _index, row in ranked.iterrows():
         identity = str(row.get("identity"))
         result = results.get(identity)
         if result:
-            _render_one_candidate_block(row, result)
+            _render_one_candidate_block(row, result, criteria)
 
 
 def _candidate_review_rows(
@@ -448,6 +625,8 @@ def _render_hybrid_page(
         unsafe_allow_html=True,
     )
 
+    criteria, criteria_valid = _render_selection_criteria_editor()
+
     model_ok, model_message = model_service.available()
     agent_ok, agent_message = idea_agent.agent_ready()
     if not model_ok:
@@ -459,56 +638,31 @@ def _render_hybrid_page(
     if agent_ok:
         st.caption(agent_message)
 
-    raw = st.session_state.get("brinc_raw")
+    raw = st.session_state.get("raw_applications")
     if raw is None:
-        reused = st.session_state.get("raw_applications")
-        if reused is not None and _has_model_schema(reused):
-            st.session_state["brinc_raw"] = reused
-            raw = reused
-
-    uploaded = st.file_uploader(
-        "Applications CSV",
-        type=["csv"],
-        key="brinc-uploader",
-        help="Optional: replace the data already available. The model needs "
-        "the full 54-column schema (problem/solution text, sector, DOB, "
-        "etc.).",
-    )
-    real_path = model_service.REAL_DATA_CSV
-    use_real = False
-    if real_path.exists():
-        use_real = st.checkbox(
-            "Use the real dashboard_ready.csv instead",
-            value=False,
-            key="brinc-use-real",
-            help=f"Loads {real_path}.",
-        )
-    if uploaded is not None:
-        try:
-            st.session_state["brinc_raw"] = pd.read_csv(
-                io.BytesIO(uploaded.getvalue()), encoding="utf-8-sig"
-            )
-        except Exception as exc:
-            st.error(f"Could not read the uploaded CSV: {exc}")
-    elif use_real:
-        st.session_state["brinc_raw"] = pd.read_csv(
-            real_path, encoding="utf-8-sig"
-        )
-
+        raw = st.session_state.get("applications")
     if raw is None:
-        candidate = st.session_state.get("raw_applications")
-        if candidate is not None and not _has_model_schema(candidate):
-            st.info(
-                "The uploaded applications file does not include the full "
-                "model schema. Upload the complete Brinc applicant CSV below."
-            )
-        elif real_path.exists():
-            st.info(
-                "Upload the full applicant CSV (or tick the real-data option) "
-                "to start."
-            )
-        else:
-            st.info("Upload the full applicant CSV to start.")
+        st.info("Upload the applications file in the dashboard sidebar to start.")
+        return
+
+    # Always use the applications file loaded through the dashboard sidebar,
+    # and invalidate any old ranking when that file changes. The uploaded-file
+    # signature is stable across reruns, so navigation does not reset work.
+    signature = st.session_state.get("brinc_data_signature")
+    if signature is None:
+        signature = (len(raw), tuple(raw.columns), id(raw))
+    if st.session_state.get("brinc_used_signature") != signature:
+        st.session_state["brinc_used_signature"] = signature
+        st.session_state.pop("brinc_ranked", None)
+        st.session_state.pop("brinc_agent_results", None)
+        st.session_state.pop("brinc_filter_key", None)
+
+    if not _has_model_schema(raw):
+        st.info(
+            "The dashboard applications file does not include the full model "
+            "schema. Load the complete Brinc applicant file in the dashboard "
+            "sidebar to rank candidates."
+        )
         return
 
     filtered_raw = _filter_raw_for_selection(
@@ -605,6 +759,7 @@ def _render_hybrid_page(
         f"Run agent on top {count} candidates",
         key="brinc-run-agent",
         use_container_width=True,
+        disabled=not criteria_valid,
     ):
         results = st.session_state.setdefault("brinc_agent_results", {})
         stripped = strip_outcomes(filtered_raw)
@@ -632,22 +787,27 @@ def _render_hybrid_page(
                             applications=stripped,
                             include_dashboard=False,
                             on_status=_candidate_status,
+                            criteria=criteria,
                         )
                         results[identity] = report.to_dict()
                     except Exception as exc:
                         results[identity] = {"error": str(exc)[:300]}
                     candidate_status.markdown("**Evaluation complete**")
-                    _render_candidate_body(row, results[identity])
+                    _render_candidate_body(
+                        row, results[identity], criteria
+                    )
             else:
                 # Cached result: render instantly.
                 with stream_area:
-                    _render_one_candidate_block(row, results[identity])
+                    _render_one_candidate_block(
+                        row, results[identity], criteria
+                    )
             progress.progress(index / count)
         status.write("Agent deep-dive complete.")
         streamed_this_run = True
 
     results = st.session_state.get("brinc_agent_results") or {}
-    if results:
+    if results and criteria_valid:
         review_rows = _candidate_review_rows(ranked, results, count)
         st.markdown("### Combined shortlist after agent review")
         st.dataframe(
@@ -657,7 +817,9 @@ def _render_hybrid_page(
         )
         if not streamed_this_run:
             # Returning to the page: show cached detail blocks instantly.
-            _render_agent_result_expanders(results, ranked.head(count))
+            _render_agent_result_expanders(
+                results, ranked.head(count), criteria
+            )
         st.caption(
             "The classifier model rank is the primary signal and the agent score is a "
             "second-opinion annotation (evidence, risks, selection rubric) for "
@@ -1080,11 +1242,15 @@ def main() -> None:
 
         if uploaded_apps is not None:
             try:
+                app_bytes = uploaded_apps.getvalue()
                 st.session_state["raw_applications"] = load_raw_upload(
-                    uploaded_apps.getvalue(), uploaded_apps.name
+                    app_bytes, uploaded_apps.name
                 )
                 st.session_state["applications"] = load_applications(
-                    uploaded_apps.getvalue(), uploaded_apps.name
+                    app_bytes, uploaded_apps.name
+                )
+                st.session_state["brinc_data_signature"] = _upload_signature(
+                    app_bytes
                 )
             except ValueError as exc:
                 st.warning(f"Applications file not loaded: {exc}")

@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Problem / Need",
+    "guidance": "Is there a clear and relevant problem being addressed?",
+    "weight": 0.2
+  },
+  {
+    "name": "Solution / Idea",
+    "guidance": "Is the proposed solution clear and does it effectively address the problem?",
+    "weight": 0.2
+  },
+  {
+    "name": "Innovation / Differentiation",
+    "guidance": "Is the idea innovative, different, or offering a new approach?",
+    "weight": 0.2
+  },
+  {
+    "name": "Market Potential",
+    "guidance": "Is there a clear target customer/market and potential for the idea to grow?",
+    "weight": 0.2
+  },
+  {
+    "name": "Feasibility",
+    "guidance": "Is the idea realistic and achievable, considering the technology, resources, regulations in Bahrain and capabilities required?",
+    "weight": 0.2
+  }
+]

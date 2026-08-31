@@ -53,7 +53,9 @@ def test_hybrid_page_ranks_with_real_model():
     assert not at.exception
     at = _open_ai_page(at, "Selection Advisor")
     assert not at.exception
-    at.session_state["brinc_raw"] = raw
+    at.session_state["raw_applications"] = raw
+    at.run()
+    assert not at.exception
     at.session_state["brinc_ranked"] = ranked
     at.run()
     assert not at.exception
@@ -89,7 +91,7 @@ def test_hybrid_page_applies_year_filter_to_shortlist():
     at.run()
     at = _open_ai_page(at, "Selection Advisor")
     assert not at.exception
-    at.session_state["brinc_raw"] = raw
+    at.session_state["raw_applications"] = raw
     at.run()
 
     selected_filter = False
@@ -111,26 +113,42 @@ def test_hybrid_page_applies_year_filter_to_shortlist():
     assert shortlist_sliders[0].max == accepted_count
 
 
-def test_real_dataset_option_hidden_when_file_missing():
-    original = model_service.REAL_DATA_CSV
-    model_service.REAL_DATA_CSV = Path(
-        "/tmp/does-not-exist-dashboard_ready.csv"
+def test_selection_advisor_has_no_page_csv_upload():
+    raw = pd.DataFrame(
+        {
+            "project_name": ["Demo"],
+            "date_of_birth": ["1990-01-01"],
+            "individual_or_team": ["Individual"],
+            "problem": ["A problem"],
+            "solution": ["A solution"],
+            "in_two_cohorts": [0],
+            "sector_all": ["Technology & IT"],
+            "year": [2024],
+            "cohort": ["English"],
+            "Sector": ["Technology & IT"],
+            "outcome_clean": ["Accepted"],
+            "applicant_type": ["Individual"],
+        }
     )
-    try:
-        at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
-        assert not at.exception
-        at = _open_ai_page(at, "Selection Advisor")
-        assert not at.exception
-        assert not any(
-            checkbox.label == "Use the real dashboard_ready.csv instead"
-            for checkbox in at.checkbox
-        )
-        warning_text = " ".join(
-            str(element.value) for element in at.warning
-        )
-        assert "Real dataset not found" not in warning_text
-    finally:
-        model_service.REAL_DATA_CSV = original
+    at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
+    at.session_state["applications"] = _applications()
+    at.session_state["raw_applications"] = raw
+    at.run()
+    at = _open_ai_page(at, "Selection Advisor")
+    assert not at.exception
+    assert len(at.session_state["selection_criteria"]) == 5
+    assert not any(
+        uploader.label == "Applications CSV"
+        for uploader in at.file_uploader
+    )
+    assert not any(
+        checkbox.label == "Use the real dashboard_ready.csv instead"
+        for checkbox in at.checkbox
+    )
+    assert any(
+        "Loaded 1 applicant rows, filtered to 1" in str(value.value)
+        for value in at.caption
+    )
 
 
 def test_sidebar_full_csv_reused_by_selection_advisor():
@@ -146,16 +164,20 @@ def test_sidebar_full_csv_reused_by_selection_advisor():
     at.run()
     at = _open_ai_page(at, "Selection Advisor")
     assert not at.exception
+    assert not any(
+        uploader.label == "Applications CSV"
+        for uploader in at.file_uploader
+    )
     assert any(
         button.label == "Rank candidates with the classifier model"
         for button in at.button
-    ), "model CSV upload should be reused from the sidebar"
+    ), "the dashboard upload should be reused by the Selection Advisor"
     info_text = " ".join(str(element.value) for element in at.info)
     assert "Upload the full applicant CSV" not in info_text
     assert "does not include the full model schema" not in info_text
 
 
-def test_sidebar_partial_csv_still_requires_model_upload():
+def test_sidebar_partial_csv_still_reports_missing_model_schema():
     fixture = ROOT / "tests" / "fixtures" / "applications.csv"
     at = AppTest.from_file(str(ROOT / "streamlit_app.py")).run()
     app_uploader = next(
@@ -167,6 +189,10 @@ def test_sidebar_partial_csv_still_requires_model_upload():
     at.run()
     at = _open_ai_page(at, "Selection Advisor")
     assert not at.exception
+    assert not any(
+        uploader.label == "Applications CSV"
+        for uploader in at.file_uploader
+    )
     assert not any(
         button.label == "Rank candidates with the classifier model"
         for button in at.button
@@ -206,9 +232,9 @@ def test_candidate_review_rows_use_selection_score_label():
 def main():
     test_hybrid_page_ranks_with_real_model()
     test_hybrid_page_applies_year_filter_to_shortlist()
-    test_real_dataset_option_hidden_when_file_missing()
+    test_selection_advisor_has_no_page_csv_upload()
     test_sidebar_full_csv_reused_by_selection_advisor()
-    test_sidebar_partial_csv_still_requires_model_upload()
+    test_sidebar_partial_csv_still_reports_missing_model_schema()
     test_candidate_review_rows_use_selection_score_label()
     print("PASS hybrid page ranking + filter tests")
 
