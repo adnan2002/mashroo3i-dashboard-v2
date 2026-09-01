@@ -77,7 +77,7 @@ Generating your /25 selection score") while working, then renders the
 structured score card, dashboard insights, and sources when finished.
 
 The sidebar is split into two sections: **Dashboard** (the analytics pages)
-and **AI** (Idea Validator, Selection Advisor).
+and **AI** (Idea Validator, Similarity & Search, Selection Advisor).
 
 The agent uses the already-uploaded CSVs; no separate upload is needed. Add
 these keys to Streamlit secrets:
@@ -150,6 +150,43 @@ The `model/` folder is self-contained: `final_model.joblib`,
 `features_build.py`. Set `BRINC_MODEL_DIR` to override the bundle location.
 Edit `model/final_threshold.json` to raise/lower the predicted-accepted cutoff
 (lower = more recall; higher = fewer, more precise candidates).
+
+### Similarity & Search page and similarity notices
+
+The **Similarity & Search** page (in the **AI** section) has two tabs:
+
+- **Similar ideas** compares every past idea with every other past idea and
+  groups the related ones into clusters. Each group is shown once as a member
+  list (name · cohort · sector; no duplicated pairs), and its "See full
+  descriptions" expander shows, for every idea, the closest match inside the
+  group as a percentage, e.g. "Most similar to Kazizo Cafe: 88% (Similar)",
+  along with the full problem and solution. Relationships of 92% or higher are
+  labelled "very similar (likely the same idea)"; anything from the chosen
+  threshold up to 92% is labelled "similar (different idea, same concept)".
+  The similarity threshold is adjustable from 60% to 95% (default 70%), and
+  each idea appears in only one group of up to 12 members (larger similarity
+  neighborhoods are split across groups). It works fully offline from the
+  bundled index files in the project root: `idea_embeddings.npy`,
+  `ideas_metadata.csv`, and `ideas_index.json` (plus `idea_search.py`, the
+  builder used to refresh them). Identical, same-name, and near-identical
+  repeats are collapsed.
+- **Search** lets you type any query and shows up to 10 matching past ideas
+  in a table with a "Score (%)" column. Pressing Enter or clicking **Search**
+  runs the query. It uses brute-force keyword matches first and falls back to
+  semantic matches (Voyage) when no keyword match is found.
+
+The **Idea Validator** also shows a brief automatic notice once an idea and
+description are entered, comparing the new idea with its closest past
+submissions (name, problem, and solution). This query-time check embeds the
+new text with the Voyage API, so add the key to Streamlit secrets:
+
+```toml
+VOYAGE_AI_API_KEY = "pa-<your-key>"
+```
+
+On Streamlit Community Cloud, add the same key under **Settings → Secrets**.
+The flagging page itself needs no key; search falls back to keywords without
+one.
 
 ## Test
 

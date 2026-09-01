@@ -184,5 +184,5 @@ def available() -> tuple[bool, str]:
         return False, str(exc)
     return (
         True,
-        f"Model is ready!",
+        f"",
     )

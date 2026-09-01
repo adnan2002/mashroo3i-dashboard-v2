@@ -1,0 +1,18 @@
+{
+  "model": "voyage-4-large",
+  "dimensions": 1024,
+  "input_type": "document",
+  "content_hash": "1745096c48c4ce01b4cee70bd5bb00ab9fadb390f21a99d7c52e69d69eb70ae4",
+  "created_at": "2026-09-01T09:55:54.864832+00:00",
+  "rows": 1483,
+  "csv": "/home/adnan/Desktop/filter_3/dashboard_ready.csv",
+  "text_fields": [
+    "Project",
+    "Problem",
+    "Solution",
+    "Differentiation",
+    "Impact",
+    "Inspiration",
+    "Keywords"
+  ]
+}

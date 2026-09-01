@@ -314,6 +314,71 @@ def test_sector_vs_outcome_stacks_counts_and_percent():
         assert abs(sum(segments) - 100.0) < 0.2
 
 
+def test_applicant_type_vs_outcome_stacks_counts_and_percent():
+    df = _combined_fixture()
+    count_rendered = dashboard.update_page(
+        "page3", None, None, None, None, None, None, df_input=df
+    )
+    count_fig = dict(_card_figures(count_rendered))["Applicant Type vs Outcome"]
+    type_names = df["applicant_type"].dropna().unique()
+    for trace in count_fig.data:
+        assert all(not str(text).endswith("%") for text in trace.text)
+    for type_name in type_names:
+        per_trace = [dict(zip(trace.y, trace.x)) for trace in count_fig.data]
+        segments = [
+            float(mapping.get(type_name, 0)) for mapping in per_trace
+        ]
+        assert abs(
+            sum(segments) - len(df[df["applicant_type"] == type_name])
+        ) < 0.01
+
+    percent_rendered = dashboard.update_page(
+        "page3", None, None, None, None, None, None, "percent", df_input=df
+    )
+    percent_fig = dict(_card_figures(percent_rendered))[
+        "Applicant Type vs Outcome"
+    ]
+    for trace in percent_fig.data:
+        assert all(str(text).endswith("%") for text in trace.text)
+    for type_name in type_names:
+        per_trace = [dict(zip(trace.y, trace.x)) for trace in percent_fig.data]
+        segments = [
+            float(mapping.get(type_name, 0)) for mapping in per_trace
+        ]
+        assert abs(sum(segments) - 100.0) < 0.2
+
+
+def test_employment_status_is_horizontal_like_education():
+    df = _combined_fixture()
+    rendered = dashboard.update_page(
+        "page2", None, None, None, None, None, None, df_input=df
+    )
+    figures = dict(_card_figures(rendered))
+    emp_fig = figures["Employment Status"]
+    assert emp_fig.data[0].orientation == "h"
+    values = [int(value) for value in emp_fig.data[0].x]
+    assert values == sorted(values)
+    assert figures["Education"].data[0].orientation == "h"
+
+
+def test_applicant_type_colors_match_across_pages():
+    df = _combined_fixture()
+    page3 = dashboard.update_page(
+        "page3", None, None, None, None, None, None, df_input=df
+    )
+    page4 = dashboard.update_page(
+        "page4", None, None, None, None, None, None, df_input=df
+    )
+    over_years = dict(_card_figures(page3))["Applicant Type Over Years"]
+    by_cohort = dict(_card_figures(page4))[
+        "Applicant Type by Language Cohort"
+    ]
+    for figure in (over_years, by_cohort):
+        colors = {trace.name: trace.marker.color for trace in figure.data}
+        assert colors["Individual"] == dashboard.C_ORANGE_SOFT
+        assert colors["Team"] == dashboard.C_YELLOW
+
+
 def test_dist_fig_switches_between_counts_and_percent():
     counts = pd.Series([3, 1], index=["A", "B"])
     percent_fig = dashboard._dist_fig(

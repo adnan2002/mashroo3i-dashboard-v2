@@ -13,6 +13,7 @@ __pycache__/
 
 *.json
 !selection_criteria.json
+!ideas_index.json
 
 # Editor / OS noise
 .idea/

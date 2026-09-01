@@ -8,7 +8,9 @@ Cloud with the same CSV/Excel upload and filters.
 from __future__ import annotations
 
 import hashlib
+import html
 import io
+import time
 
 import pandas as pd
 import streamlit as st
@@ -17,6 +19,7 @@ from dash import dcc as dash_dcc
 import app as dash_app
 import idea_agent
 import model_service
+import similarity
 from hybrid_evaluate import idea_text_for, strip_outcomes
 
 
@@ -29,6 +32,7 @@ PAGE_LABELS = {
 }
 AGENT_PAGE = "Idea Validator"
 HYBRID_PAGE = "Selection Advisor"
+SIMILAR_IDEAS_PAGE = "Similarity & Search"
 
 # Applications columns the dashboard needs (the Dash app's REQUIRED_COLUMNS
 # minus the attendance-specific columns).
@@ -197,9 +201,7 @@ def load_attendance(file_bytes: bytes, filename: str) -> pd.DataFrame:
 
 def available_pages(attendance_loaded: bool) -> list[str]:
     """Pages to show in navigation; Attendance only when data is loaded."""
-    pages = list(PAGE_LABELS)
-    if not attendance_loaded:
-        pages.remove("Attendance")
+    pages = dashboard_pages(attendance_loaded)
     pages.extend(ai_pages())
     return pages
 
@@ -214,7 +216,7 @@ def dashboard_pages(attendance_loaded: bool) -> list[str]:
 
 def ai_pages() -> list[str]:
     """AI-assisted section pages."""
-    return [AGENT_PAGE, HYBRID_PAGE]
+    return [AGENT_PAGE, HYBRID_PAGE, SIMILAR_IDEAS_PAGE]
 
 
 def _criteria_to_frame(
@@ -419,6 +421,100 @@ def _render_agent_report(
                 st.markdown(f"- {title}")
 
 
+SIMILARITY_DEBOUNCE_SECONDS = 1.0
+SIMILARITY_MIN_CHARS = 15
+
+
+def _render_similarity_note(matches: list[dict]) -> None:
+    """Render a friendly, non-technical similarity notice."""
+    if not matches:
+        return
+    lines = [
+        '<div class="summary-card similarity-notice">',
+        "<b>Heads up:</b> this idea looks similar to some past submissions.",
+    ]
+    for match in matches:
+        name = html.escape(
+            _text_value(match.get("project_name")) or "unnamed idea"
+        )
+        year = html.escape(_text_value(match.get("year")))
+        cohort_id = html.escape(_text_value(match.get("cohort_id")))
+        level = html.escape(str(match.get("level") or "Similar"))
+        meta = " · ".join(
+            part
+            for part in (
+                year,
+                f"Cohort {cohort_id}" if cohort_id else "",
+            )
+            if part
+        )
+        lines.append(
+            f'<div class="insight-text">• <b>{name}</b> ({meta}) — {level}</div>'
+        )
+    lines.append("</div>")
+    st.markdown("\n".join(lines), unsafe_allow_html=True)
+    with st.expander("Compare with these past ideas"):
+        for match in matches:
+            name = _text_value(match.get("project_name")) or "unnamed idea"
+            year = _text_value(match.get("year"))
+            cohort_id = _text_value(match.get("cohort_id"))
+            level = str(match.get("level") or "Similar")
+            meta = " · ".join(
+                part
+                for part in (
+                    year,
+                    f"Cohort {cohort_id}" if cohort_id else "",
+                )
+                if part
+            )
+            st.markdown(f"### {name} ({meta}) — {level}")
+            st.markdown("**Problem**")
+            st.write(
+                _text_value(match.get("problem"))
+                or "No problem description provided."
+            )
+            st.markdown("**Solution**")
+            st.write(
+                _text_value(match.get("solution"))
+                or "No solution description provided."
+            )
+
+
+def _similar_ideas_for_input(
+    idea: str, description: str, force: bool = False
+) -> list[dict]:
+    """Return similar past ideas for the current input, debounced and cached."""
+    idea_text = idea.strip()
+    description_text = description.strip()
+    if not idea_text or not description_text:
+        return []
+    if len(idea_text) + len(description_text) < SIMILARITY_MIN_CHARS:
+        return []
+
+    text_key = (idea_text, description_text)
+    now = time.monotonic()
+    if st.session_state.get("agent_sim_text") != text_key:
+        st.session_state["agent_sim_text"] = text_key
+        st.session_state["agent_sim_last_edit"] = now
+    if st.session_state.get("agent_sim_checked_text") == text_key:
+        return list(st.session_state.get("agent_sim_matches") or [])
+
+    last_edit = float(st.session_state.get("agent_sim_last_edit", now))
+    if not force and now - last_edit < SIMILARITY_DEBOUNCE_SECONDS:
+        return []
+
+    try:
+        with st.spinner("Checking for similar past ideas..."):
+            matches = similarity.search_similar(
+                f"Problem: {idea_text}\nDescription: {description_text}"
+            )
+    except Exception:
+        matches = []
+    st.session_state["agent_sim_checked_text"] = text_key
+    st.session_state["agent_sim_matches"] = matches
+    return list(matches)
+
+
 def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
     """Render the AI Agent page: idea input -> validation + dashboard insights."""
     st.markdown(f'<div class="page-title">{AGENT_PAGE}</div>', unsafe_allow_html=True)
@@ -450,13 +546,19 @@ def _render_agent_page(applications: pd.DataFrame, attendance) -> None:
         height=180,
         placeholder="Describe the problem, who it affects, and how you plan to solve it.",
     )
-    if st.button(
+    run_requested = st.button(
         "Validate & Analyze",
         key="agent_run",
         type="primary",
         use_container_width=True,
         disabled=not criteria_valid,
-    ):
+    )
+    similar_matches = _similar_ideas_for_input(
+        idea, description, force=run_requested
+    )
+    if similar_matches:
+        _render_similarity_note(similar_matches)
+    if run_requested:
         if not idea.strip() and not description.strip():
             st.warning("Please enter an idea or a problem first.")
         else:
@@ -910,6 +1012,148 @@ def _filter_raw_for_selection(
     return filtered
 
 
+def _two_cohort_identity(frame: pd.DataFrame) -> pd.Series:
+    """Return the identity used to detect repeat submissions in a year."""
+    names = frame["project_name"].fillna("").astype(str).str.strip()
+    if "date_of_birth" not in frame.columns:
+        return names
+    births = frame["date_of_birth"].fillna("").astype(str).str.strip()
+    return names + "|" + births
+
+
+def _text_value(value) -> str:
+    """Return a compact non-null string value."""
+    if value is None:
+        return ""
+    if isinstance(value, float) and pd.isna(value):
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in ("nan", "none") else text
+
+
+def _two_cohort_ideas(
+    raw: pd.DataFrame,
+    years=None,
+    sectors=None,
+    outcomes=None,
+    types=None,
+) -> pd.DataFrame:
+    """Return one row per idea submitted in more than one cohort of a year.
+
+    Detection uses ``project_name + date_of_birth`` (falling back to
+    ``project_name`` when DOB is absent) grouped by ``year``; an idea qualifies
+    when that identity appears under more than one ``cohort_id`` in the same
+    year. Year/Sector/Outcome/Applicant-type filters are applied on the latest
+    round (highest ``cohort_id``); the language ``cohort`` filter is not used
+    because a repeated idea spans both language cohorts.
+    """
+    required = {"year", "project_name", "cohort_id"}
+    if not required.issubset(raw.columns):
+        return pd.DataFrame()
+    frame = raw.copy()
+    frame["_two_cohort_identity"] = _two_cohort_identity(frame)
+    cohort_counts = frame.groupby(
+        ["year", "_two_cohort_identity"], dropna=False
+    )["cohort_id"].nunique()
+    repeated = cohort_counts[cohort_counts > 1]
+    if repeated.empty:
+        return pd.DataFrame()
+    repeated_index = repeated.index
+    candidates = frame.set_index(
+        ["year", "_two_cohort_identity"]
+    ).loc[repeated_index].reset_index()
+    candidates = candidates.sort_values(
+        ["year", "_two_cohort_identity", "cohort_id"], kind="mergesort"
+    )
+
+    rows: list[dict] = []
+    for (year, identity), group in candidates.groupby(
+        ["year", "_two_cohort_identity"], sort=False, dropna=False
+    ):
+        ordered = group.reset_index(drop=True)
+        first = ordered.iloc[0]
+        latest = ordered.iloc[-1]
+        if years and year not in years:
+            continue
+        if sectors:
+            sector = _text_value(latest.get("Sector", latest.get("sector")))
+            if sector not in sectors:
+                continue
+        if outcomes:
+            outcome = _text_value(
+                latest.get("outcome_clean", latest.get("outcome"))
+            )
+            if outcome not in outcomes:
+                continue
+        if types:
+            applicant_type = _text_value(
+                latest.get("applicant_type", latest.get("individual_or_team"))
+            )
+            applicant_type = dash_app._clean_applicant_type(applicant_type)
+            if applicant_type not in types:
+                continue
+
+        problem = _text_value(
+            latest.get("problem_en", latest.get("problem"))
+        )
+        solution = _text_value(
+            latest.get("solution_en", latest.get("solution"))
+        )
+        idea_text = problem
+        if solution:
+            idea_text = f"{idea_text}\n{solution}" if idea_text else solution
+
+        rows.append(
+            {
+                "project_name": _text_value(first.get("project_name")),
+                "year": year,
+                "cohort_1": _text_value(first.get("cohort_id")),
+                "cohort_2": _text_value(latest.get("cohort_id")),
+                "sector_1": _text_value(
+                    first.get("Sector", first.get("sector"))
+                ),
+                "sector_2": _text_value(
+                    latest.get("Sector", latest.get("sector"))
+                ),
+                "stage_1": _text_value(
+                    first.get("Business Stage", first.get("stage"))
+                ),
+                "stage_2": _text_value(
+                    latest.get("Business Stage", latest.get("stage"))
+                ),
+                "outcome_1": _text_value(
+                    first.get("outcome_clean", first.get("outcome"))
+                ),
+                "outcome_2": _text_value(
+                    latest.get("outcome_clean", latest.get("outcome"))
+                ),
+                "applicant_type": dash_app._clean_applicant_type(
+                    _text_value(
+                        latest.get(
+                            "applicant_type", latest.get("individual_or_team")
+                        )
+                    )
+                ),
+                "idea_text": idea_text,
+            }
+        )
+    columns = [
+        "project_name",
+        "year",
+        "cohort_1",
+        "cohort_2",
+        "sector_1",
+        "sector_2",
+        "stage_1",
+        "stage_2",
+        "outcome_1",
+        "outcome_2",
+        "applicant_type",
+        "idea_text",
+    ]
+    return pd.DataFrame(rows, columns=columns)
+
+
 def _selection_filter_key(years, cohorts, outcomes, sectors, types) -> tuple:
     """Hash the active filters to detect when ranking is stale."""
     return (
@@ -1180,6 +1424,15 @@ def _inject_theme() -> None:
           color: var(--ms-text);
           line-height: 1.55;
         }
+        .similarity-notice {
+          border: 1px solid #f0b429;
+          border-left: 5px solid #e68a00;
+          background: #fff7e6;
+          color: #7a4b00;
+        }
+        .similarity-notice b {
+          color: #b45309;
+        }
         .insight-grid {
           display: grid;
           grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -1211,6 +1464,314 @@ def _inject_theme() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def _meta_chips(*values) -> str:
+    """Join non-empty metadata values with a separator for display."""
+    parts = [part for part in (_text_value(value) for value in values) if part]
+    return " · ".join(parts)
+
+
+SEARCH_RESULTS_LIMIT = 10
+
+
+def _keyword_search(query: str, limit: int = SEARCH_RESULTS_LIMIT) -> list[dict]:
+    """Search the bundled idea index by keywords, without an API call."""
+    query_text = (query or "").strip()
+    if not query_text:
+        return []
+    cached = similarity.deduplicated_index()
+    if cached is None:
+        return []
+    _matrix, metadata, _index = cached
+    terms = [term for term in similarity.normalize_text(query_text).split() if term]
+    if not terms:
+        return []
+
+    matches: list[tuple[int, dict]] = []
+    for _row_index, row in metadata.iterrows():
+        haystack = similarity.normalize_text(
+            " ".join(
+                [
+                    _text_value(row.get("project_name")),
+                    _text_value(row.get("sector")),
+                    _text_value(row.get("text")),
+                ]
+            )
+        )
+        score = sum(1 for term in terms if term in haystack)
+        if score == 0:
+            continue
+        sections = similarity.document_sections(row.get("text"))
+        matches.append(
+            (
+                score,
+                {
+                    "similarity": None,
+                    "level": "Keyword match",
+                    "project_name": _text_value(row.get("project_name")),
+                    "year": _text_value(row.get("year")),
+                    "cohort_id": _text_value(row.get("cohort_id")),
+                    "sector": _text_value(row.get("sector")),
+                    "snippet": similarity._snippet(row.get("text")),
+                    "problem": sections.get("Problem", ""),
+                    "solution": sections.get("Solution", ""),
+                },
+            )
+        )
+    matches.sort(
+        key=lambda item: (
+            -item[0],
+            similarity.normalize_name(item[1]["project_name"]),
+        )
+    )
+    return [item[1] for item in matches[:limit]]
+
+
+def _search_ideas(query: str, limit: int = SEARCH_RESULTS_LIMIT) -> list[dict]:
+    """Find up to ``limit`` past ideas, keyword first then semantic fallback."""
+    query_text = (query or "").strip()
+    if not query_text:
+        return []
+    results = _keyword_search(query_text, limit)
+    if results:
+        return results[:limit]
+    return similarity.search_similar(query_text, top_k=limit)[:limit]
+
+
+def _search_results_frame(results: list[dict]) -> pd.DataFrame:
+    """Convert search results into a readable spreadsheet-style table."""
+    rows = []
+    for result in results:
+        score = result.get("similarity")
+        score_value = ""
+        if score is not None and not pd.isna(score):
+            score_value = f"{round(float(score) * 100)}%"
+        rows.append(
+            {
+                "Project": _text_value(result.get("project_name")),
+                "Year": _text_value(result.get("year")),
+                "Cohort": _text_value(result.get("cohort_id")),
+                "Sector": _text_value(result.get("sector")),
+                # "Level": _text_value(result.get("level")),
+                # "Score (%)": score_value,
+                "Problem": _text_value(result.get("problem")),
+                "Solution": _text_value(result.get("solution")),
+            }
+        )
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "Project",
+            "Year",
+            "Cohort",
+            "Sector",
+            "Problem",
+            "Solution",
+        ],
+    )
+
+
+def _run_similar_search() -> None:
+    """Run the current search query and cache its results."""
+    query = st.session_state.get("similar_search_query", "")
+    with st.spinner("Searching past ideas..."):
+        results = _search_ideas(query)
+    st.session_state["similar_search_results"] = results
+    st.session_state["similar_search_query_value"] = query
+
+
+def _render_search_tab() -> None:
+    """Render the free-text search tab for past ideas."""
+    if not similarity.index_available():
+        st.info(
+            "The similar-ideas index is not available in this copy of the app. "
+            "Load the complete Brinc applicant data to enable search."
+        )
+        return
+
+    query = st.text_input(
+        "Search past ideas",
+        key="similar_search_query",
+        placeholder="e.g. food delivery app or affordable tutoring",
+        help=(
+            "Find up to 10 past ideas. Keyword matches are used first; "
+            "semantic matches are used when no keyword match is found."
+        ),
+        on_change=_run_similar_search,
+    )
+    submitted = st.button("Search", key="similar_search_submit", type="primary")
+    if submitted:
+        _run_similar_search()
+
+    results = st.session_state.get("similar_search_results")
+    if (
+        results is None
+        or st.session_state.get("similar_search_query_value") != query
+    ):
+        return
+    if not results:
+        st.info("No matching ideas found. Try different keywords.")
+        return
+
+    st.metric("Matches found", len(results))
+    st.dataframe(
+        _search_results_frame(results[:SEARCH_RESULTS_LIMIT]),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+def _details_html(members: pd.DataFrame, group_edges: pd.DataFrame) -> str:
+    """Render every member's closest match and full description as HTML."""
+    names = {
+        int(row["row_index"]): _text_value(row.get("project_name"))
+        or "unnamed idea"
+        for _index, row in members.iterrows()
+    }
+    blocks = []
+    for _index, member in members.iterrows():
+        row_index = int(member["row_index"])
+        name = html.escape(
+            _text_value(member.get("project_name")) or "unnamed idea"
+        )
+        meta = _meta_chips(
+            member.get("cohort_id"),
+            member.get("sector"),
+        )
+        member_edge = group_edges[
+            (group_edges["left_row_index"] == row_index)
+            | (group_edges["right_row_index"] == row_index)
+        ]
+        score_text = ""
+        if not member_edge.empty:
+            edge = member_edge.iloc[0]
+            score = float(edge["similarity"])
+            band = html.escape(
+                similarity.relation_band(score).split(" (")[0]
+            )
+            partner_index = (
+                int(edge["right_row_index"])
+                if int(edge["left_row_index"]) == row_index
+                else int(edge["left_row_index"])
+            )
+            partner = html.escape(names.get(partner_index) or "unnamed idea")
+            score_text = (
+                f"Most similar to {partner}: "
+                f"{round(score * 100)}% ({band})"
+            )
+        problem = html.escape(
+            _text_value(member.get("problem"))
+            or "No problem description provided."
+        )
+        solution = html.escape(
+            _text_value(member.get("solution"))
+            or "No solution description provided."
+        )
+        blocks.append(
+            f'<div class="insight-text"><b>{name}</b>'
+            f"{(' · ' + html.escape(meta)) if meta else ''}<br>"
+            f"<b>{score_text}</b><br>"
+            f"<b>Problem:</b> {problem}<br>"
+            f"<b>Solution:</b> {solution}</div>"
+        )
+    return "<br>".join(blocks)
+
+
+def _render_cluster_group(
+    cluster_id: int,
+    members: pd.DataFrame,
+    edges: pd.DataFrame,
+) -> None:
+    """Render one related-idea group: member list and descriptions."""
+    size = len(members)
+    st.markdown(f"### Group of {size} related ideas")
+    group_edges = edges[edges["cluster_id"] == cluster_id]
+    member_lines = []
+    for _index, member in members.iterrows():
+        name = html.escape(
+            _text_value(member.get("project_name")) or "unnamed idea"
+        )
+        meta = _meta_chips(
+            member.get("cohort_id"),
+            member.get("sector"),
+        )
+        parts = [f"**{name}**"]
+        if meta:
+            parts.append(html.escape(meta))
+        member_lines.append(" · ".join(parts))
+    st.markdown("<br>".join(member_lines), unsafe_allow_html=True)
+
+    with st.expander("See full descriptions"):
+        st.markdown(
+            _details_html(members, group_edges),
+            unsafe_allow_html=True,
+        )
+
+
+def _render_similar_ideas_page() -> None:
+    """Render the Similarity & Search page: groups and archive search."""
+    st.markdown(
+        f'<div class="page-title">{SIMILAR_IDEAS_PAGE}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div class="page-subtitle">Discover the closest ideas to each past '
+        "submission, or search the idea archive quickly.</div>",
+        unsafe_allow_html=True,
+    )
+
+    discovery_tab, search_tab = st.tabs(["Similar ideas", "Search"])
+    with discovery_tab:
+        if not similarity.index_available():
+            st.info(
+                "The similar-ideas index is not available in this copy of the "
+                "app. Load the complete Brinc applicant data to enable this "
+                "page."
+            )
+            return
+        threshold_percent = st.slider(
+            "Similarity threshold",
+            min_value=60,
+            max_value=95,
+            value=70,
+            step=5,
+            format="%d%%",
+            key="similar_discovery_threshold",
+            help=(
+                "Lower = more ideas in each group; higher = only the closest "
+                "matches."
+            ),
+        )
+        threshold = threshold_percent / 100
+        clusters, edges = similarity.similar_clusters(threshold=threshold)
+        if clusters.empty:
+            st.info("No related idea groups were found.")
+        else:
+            st.metric("Related idea groups", clusters["cluster_id"].nunique())
+            total_groups = int(clusters["cluster_id"].nunique())
+            limit = int(st.session_state.get("similar_discovery_limit", 40))
+            limit = max(40, min(limit, total_groups))
+            shown = 0
+            for cluster_id, members in clusters.groupby("cluster_id", sort=False):
+                if shown >= limit:
+                    break
+                _render_cluster_group(cluster_id, members, edges)
+                shown += 1
+            if shown < total_groups:
+                next_limit = min(limit + 40, total_groups)
+                if st.button(
+                    f"Show more groups ({next_limit} of {total_groups})",
+                    key="similar_discovery_show_more",
+                ):
+                    st.session_state["similar_discovery_limit"] = next_limit
+                    st.rerun()
+                st.caption(
+                    f"Showing {shown} of {total_groups} related idea groups."
+                )
+
+    with search_tab:
+        _render_search_tab()
 
 
 def main() -> None:
@@ -1339,6 +1900,9 @@ def main() -> None:
         return
     if page_name == HYBRID_PAGE:
         _render_hybrid_page(years, cohorts, outcomes, sectors, types)
+        return
+    if page_name == SIMILAR_IDEAS_PAGE:
+        _render_similar_ideas_page()
         return
 
     st.markdown(f'<div class="page-title">{page_name}</div>', unsafe_allow_html=True)

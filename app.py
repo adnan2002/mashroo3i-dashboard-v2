@@ -1193,11 +1193,12 @@ def update_page(
         )
 
         cnt_emp, missing_emp = _split_missing(dff["employment_status"].value_counts())
-        cnt_emp = cnt_emp.sort_values(ascending=False)
+        cnt_emp = cnt_emp.sort_values()
         note_emp = _missing_note(missing_emp, as_percent, total)
         fig_emp = _dist_fig(
             cnt_emp.index,
             cnt_emp.values,
+            orientation="h",
             as_percent=as_percent,
             note=note_emp,
         )
@@ -1246,6 +1247,16 @@ def update_page(
 
     elif page == "page3":
         df_type_out = dff.groupby(["applicant_type", "outcome_clean"]).size().reset_index(name="Total")
+        if as_percent:
+            type_total = df_type_out.groupby("applicant_type")["Total"].transform(
+                "sum"
+            )
+            df_type_out["Total"] = (
+                df_type_out["Total"] / type_total * 100
+            ).round(1)
+            df_type_out["Text"] = df_type_out["Total"].astype(str) + "%"
+        else:
+            df_type_out["Text"] = df_type_out["Total"].astype(str)
         fig_type_out = px.bar(
             df_type_out,
             y="applicant_type",
@@ -1258,7 +1269,7 @@ def update_page(
                 "Rejected": C_ORANGE_DARK,
                 "Not Specified": C_GRAY,
             },
-            text="Total",
+            text="Text",
         )
         fig_type_out.update_traces(marker=dict(cornerradius=14), textposition="inside")
         _order_legend_colors(fig_type_out)
@@ -1307,7 +1318,7 @@ def update_page(
             y="Total",
             color="applicant_type",
             barmode="group",
-            color_discrete_map={"Individual": C_ORANGE_DARK, "Team": C_ORANGE_LIGHT},
+            color_discrete_map={"Individual": C_ORANGE_SOFT, "Team": C_YELLOW},
             text="Total",
         )
         fig_y_type.update_traces(marker=dict(cornerradius=12), textposition="outside", cliponaxis=False)
@@ -1580,7 +1591,6 @@ def update_page(
             color="applicant_type",
             barmode="group",
             text="Total",
-            # Warm but distinct from the Accepted/Rejected orange pair.
             color_discrete_map={
                 "Individual": C_ORANGE_SOFT,
                 "Team": C_YELLOW,
