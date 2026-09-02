@@ -10,6 +10,19 @@
 
 ---
 
+## About
+
+Mashroo3i is a visual dashboard for startup programme applicant data. It
+brings applications, cohort trends, sector insights, attendance, and
+AI-assisted idea review together in one place — so teams can understand
+applicants, compare groups, spot patterns, and make more informed selection
+decisions.
+
+It's designed to be straightforward: upload your data, explore the charts, and
+adjust the filters until you see the story you're looking for.
+
+---
+
 ## What the dashboard does
 
 Mashroo3i helps you answer questions like:
